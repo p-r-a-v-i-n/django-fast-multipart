@@ -26,13 +26,12 @@ The following behavior is covered:
 - Django's 1,024-byte aggregate part-header limit;
 - truncated fields and interrupted files at end of input;
 - raw boundary tokens embedded in part data;
+- Django boundary values through 201 bytes;
 - Django's parser constructor and return-value contract.
 
 Known limitations:
 
 - `Content-Transfer-Encoding: base64` is not supported;
-- boundary values longer than the RFC 2046 limit of 70 bytes are rejected,
-  while Django accepts longer values;
 - malformed header lines accepted by Django may be rejected;
 - custom upload-handler edge cases beyond those listed above are not yet fully
   covered;

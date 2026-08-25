@@ -549,19 +549,9 @@ def test_eof_before_part_body_returns_empty_results(parser_class, body):
         assert files == {}
 
 
-@pytest.mark.parametrize("boundary_length", [1, 70])
+@pytest.mark.parametrize("boundary_length", [1, 70, 71, 200, 201])
 @pytest.mark.parametrize("parser_class", PARSERS)
-def test_rfc_boundary_lengths_parse(parser_class, boundary_length):
-    boundary = b"x" * boundary_length
-    body = make_body([field_part("name", b"value")], boundary=boundary)
-
-    with parsed_with(parser_class, body, boundary=boundary) as (post, _):
-        assert post.get("name") == "value"
-
-
-@pytest.mark.parametrize("boundary_length", [71, 200, 201])
-@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
-def test_django_legacy_boundary_lengths_are_recorded(parser_class, boundary_length):
+def test_supported_boundary_lengths_parse(parser_class, boundary_length):
     boundary = b"x" * boundary_length
     body = make_body([field_part("name", b"value")], boundary=boundary)
 

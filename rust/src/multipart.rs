@@ -11,6 +11,7 @@ use pyo3::{
 };
 
 const CRLF: &[u8] = b"\r\n";
+const MAX_BOUNDARY_LENGTH: usize = 201;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum MultipartState {
@@ -62,11 +63,12 @@ impl MultipartParser {
         max_header_size: usize,
         max_total_header_size: Option<usize>,
     ) -> PyResult<Self> {
-        // RFC 2046 section 5.1.1 limits boundary values to 70 characters.
-        if boundary.is_empty() || boundary.len() > 70 {
-            return Err(PyValueError::new_err(
-                "Boundary length must be between 1 and 70 characters.",
-            ));
+        // Django performs character validation before constructing this
+        // parser and accepts boundary values through 201 bytes.
+        if boundary.is_empty() || boundary.len() > MAX_BOUNDARY_LENGTH {
+            return Err(PyValueError::new_err(format!(
+                "Boundary length must be between 1 and {MAX_BOUNDARY_LENGTH} bytes."
+            )));
         }
 
         let dash_boundary = [b"--".as_slice(), &boundary].concat();
