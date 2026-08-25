@@ -25,11 +25,11 @@ HEADER_TOO_LARGE_MESSAGE = "Request max total header size exceeded."
 RUST_HEADER_LIMIT_ERRORS = {
     "Header line exceeds maximum size.",
     "Part exceeds maximum header count.",
+    "Part exceeds maximum total header size.",
 }
-# Django's boundary stream includes a leading CRLF and the terminating CRLFCRLF.
-# These core limits bound input until the aggregate check can run at PartBegin.
+# These bounds match Django's boundary suffix and raw header accounting.
 MAX_HEADER_COUNT = (MAX_TOTAL_HEADER_SIZE - 2) // 4
-MAX_HEADER_LINE_SIZE = MAX_TOTAL_HEADER_SIZE - 6
+MAX_HEADER_LINE_SIZE = MAX_TOTAL_HEADER_SIZE
 
 
 @dataclass
@@ -77,6 +77,7 @@ class RustMultiPartParser(MultiPartParser):
                 self._boundary,
                 max_header_count=MAX_HEADER_COUNT,
                 max_header_size=MAX_HEADER_LINE_SIZE,
+                max_total_header_size=MAX_TOTAL_HEADER_SIZE,
             )
         except (RuntimeError, ValueError) as exc:
             raise self._multipart_error(exc) from exc
@@ -210,16 +211,6 @@ class RustMultiPartParser(MultiPartParser):
     def _parse_headers(
         self, raw_headers: list[tuple[bytes, bytes]]
     ) -> dict[str, tuple[str, dict[str, str]]]:
-        # The Rust core trims header whitespace. This is the exact lower bound
-        # still recoverable from its events: one colon and one CRLF per line,
-        # plus Django's leading CRLF and the final blank CRLF.
-        minimum_header_size = 4 + sum(
-            len(raw_name) + len(raw_value) + 3
-            for raw_name, raw_value in raw_headers
-        )
-        if minimum_header_size > MAX_TOTAL_HEADER_SIZE:
-            raise MultiPartParserError(HEADER_TOO_LARGE_MESSAGE)
-
         headers = {}
         for raw_name, raw_value in raw_headers:
             try:

@@ -455,6 +455,22 @@ def test_single_header_enforces_exact_size_boundary(parser_class):
 
 
 @pytest.mark.parametrize("parser_class", PARSERS)
+def test_boundary_padding_counts_toward_total_header_limit(parser_class):
+    accepted_header = b"X: " + b"x" * 1015
+    body = make_body([([accepted_header], b"")])
+    opening_boundary = b"--" + DEFAULT_BOUNDARY + b"\r\n"
+    padded_boundary = b"--" + DEFAULT_BOUNDARY + b" \r\n"
+    body = body.replace(opening_boundary, padded_boundary, 1)
+
+    assert_parse_error(
+        parser_class,
+        body,
+        MultiPartParserError,
+        HEADER_TOO_LARGE_MESSAGE,
+    )
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_minimal_headers_enforce_exact_count_boundary(parser_class):
     accepted_body = make_body([([b"X:"] * 255, b"")])
     rejected_body = make_body([([b"X:"] * 256, b"")])
@@ -494,10 +510,7 @@ def test_combined_headers_enforce_exact_size_boundary(parser_class):
 
 @pytest.mark.parametrize("parser_class", PARSERS)
 def test_combined_headers_enforce_total_header_limit(parser_class):
-    headers = tuple(
-        f"X-Padding-{index}: ".encode() + b"x" * 50
-        for index in range(20)
-    )
+    headers = tuple(f"X-Padding-{index}: ".encode() + b"x" * 50 for index in range(20))
     body = make_body([field_part("name", b"value", extra_headers=headers)])
 
     assert_parse_error(
@@ -517,11 +530,10 @@ def test_more_than_eight_small_headers_are_accepted(parser_class):
         assert post.get("name") == "value"
 
 
-@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
-def test_raw_header_whitespace_gap_is_recorded(parser_class):
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_raw_header_whitespace_enforces_total_limit(parser_class):
     headers = tuple(
-        f"X-Whitespace-{index}: ".encode() + b" " * 100 + b"value"
-        for index in range(10)
+        f"X-Whitespace-{index}: ".encode() + b" " * 100 + b"value" for index in range(10)
     )
     body = make_body([field_part("name", b"value", extra_headers=headers)])
 
@@ -533,8 +545,8 @@ def test_raw_header_whitespace_gap_is_recorded(parser_class):
     )
 
 
-@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
-def test_post_colon_space_header_size_gap_is_recorded(parser_class):
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_post_colon_space_enforces_exact_header_limit(parser_class):
     first_header = b"X: " + b"x" * 499
     second_header = b"Y: " + b"y" * 512
     assert len(first_header) + len(second_header) + 8 == 1025

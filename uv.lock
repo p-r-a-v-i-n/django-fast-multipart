@@ -52,7 +52,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "django", specifier = ">=6.1,<6.2" },
-    { name = "rust-multipart", git = "https://github.com/Kludex/rust-multipart.git?rev=0bc3df5a55a139d133dc6e2e73f112a08a4e43f8" },
+    { name = "rust-multipart", git = "https://github.com/p-r-a-v-i-n/rust-multipart.git?rev=2fc31ceeec0b980fcfe37b9ee2ed0fb3b2b7f437" },
 ]
 
 [package.metadata.requires-dev]
@@ -141,7 +141,7 @@ wheels = [
 [[package]]
 name = "rust-multipart"
 version = "0.0.0"
-source = { git = "https://github.com/Kludex/rust-multipart.git?rev=0bc3df5a55a139d133dc6e2e73f112a08a4e43f8#0bc3df5a55a139d133dc6e2e73f112a08a4e43f8" }
+source = { git = "https://github.com/p-r-a-v-i-n/rust-multipart.git?rev=2fc31ceeec0b980fcfe37b9ee2ed0fb3b2b7f437#2fc31ceeec0b980fcfe37b9ee2ed0fb3b2b7f437" }
 
 [[package]]
 name = "sqlparse"
