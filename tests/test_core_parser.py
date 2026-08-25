@@ -150,19 +150,18 @@ def test_accepts_transport_padding_and_closing_without_crlf() -> None:
     assert collect_parts(events)[0][1] == b"value"
 
 
-def test_treats_near_boundaries_as_body_data() -> None:
-    body = (
-        b"--boundary\r\n"
-        b"Content-Disposition: form-data; name=field\r\n"
-        b"\r\n"
-        b"alpha\r\n--boundaryX\r\n--boundary-!\r\nomega\r\n"
-        b"--boundary--\r\n"
-    )
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+@pytest.mark.parametrize("line_break", [b"", b"\r", b"\n", b"\r\n"])
+def test_django_compatibility_ends_body_at_raw_boundary_token(
+    chunk_size: int, line_break: bytes
+) -> None:
+    body = b"--boundary\r\n\r\nalpha" + line_break + b"--boundaryX ignored\r\n--boundary--\r\n"
     parser = MultipartParser(b"boundary")
 
-    events = feed(parser, body, [1] * len(body))
+    events = feed(parser, body, [chunk_size] * (len(body) // chunk_size))
 
-    assert collect_parts(events)[0][1] == b"alpha\r\n--boundaryX\r\n--boundary-!\r\nomega"
+    assert collect_parts(events) == [([], b"alpha")]
+    assert parser.state == MultipartState.END
 
 
 def test_ignores_false_preamble_candidates() -> None:
@@ -216,7 +215,7 @@ def test_feed_eof_flushes_retained_body_data_without_ending_part() -> None:
         parser.finish()
 
 
-def test_feed_eof_preserves_near_boundary_body_data() -> None:
+def test_feed_eof_discards_data_after_invalid_boundary_token() -> None:
     prefix = b"--boundary\r\n\r\n"
     data = b"alpha\r\n--boundaryXomega"
     parser = MultipartParser(b"boundary")
@@ -224,9 +223,8 @@ def test_feed_eof_preserves_near_boundary_body_data() -> None:
     events = parser.feed(prefix + data)
     eof_events = parser.feed_eof()
 
-    assert (
-        b"".join(event.data for event in events + eof_events if isinstance(event, PartData)) == data
-    )
+    assert collect_parts(events + eof_events) == [([], b"alpha")]
+    assert parser.state == MultipartState.DISCARD
 
 
 def test_feed_eof_with_empty_truncated_body_emits_no_data() -> None:
@@ -342,8 +340,10 @@ def test_rejects_bare_line_feeds() -> None:
 
     parser = MultipartParser(b"boundary")
     parser.feed(b"--boundary\r\nContent-Disposition: form-data; name=field\r\n\r\nvalue\r\n")
-    with pytest.raises(ValueError, match="Invalid line break after delimiter"):
-        parser.feed(b"--boundary\n")
+    events = parser.feed(b"--boundary\n")
+    assert isinstance(events[-1], PartEnd)
+    assert collect_parts(events) == [([], b"value")]
+    assert parser.state == MultipartState.DISCARD
 
 
 def test_rejects_malformed_headers() -> None:

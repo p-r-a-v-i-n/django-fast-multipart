@@ -13,6 +13,8 @@ pub enum PyMultipartState {
     Body,
     #[pyo3(name = "END")]
     End,
+    #[pyo3(name = "DISCARD")]
+    Discard,
 }
 
 impl From<MultipartState> for PyMultipartState {
@@ -21,6 +23,7 @@ impl From<MultipartState> for PyMultipartState {
             MultipartState::Preamble => Self::Preamble,
             MultipartState::Header => Self::Header,
             MultipartState::Body => Self::Body,
+            MultipartState::Discard => Self::Discard,
             MultipartState::End => Self::End,
         }
     }

@@ -212,14 +212,17 @@ def test_every_two_chunk_split_matches_django():
         assert snapshot(actual_post, actual_files) == snapshot(expected_post, expected_files), split
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Django terminates a part at a boundary prefix followed by X, while "
-        "rust-multipart preserves the sequence as part data."
-    ),
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+@pytest.mark.parametrize(
+    "file_data",
+    [
+        b"before--" + BOUNDARY + b"X\r\nafter",
+        b"before\r--" + BOUNDARY + b"-!\r\nafter",
+        b"before\n--" + BOUNDARY + b" \tX\r\nafter",
+        b"before\r\n--" + BOUNDARY + b"\nafter",
+    ],
 )
-def test_boundary_prefix_inside_file_records_known_difference():
+def test_boundary_prefix_inside_file_matches_django(file_data, chunk_size):
     body = make_body(
         [
             (
@@ -227,14 +230,15 @@ def test_boundary_prefix_inside_file_records_known_difference():
                     (b"Content-Disposition", b'form-data; name="file"; filename="data.bin"'),
                     (b"Content-Type", b"application/octet-stream"),
                 ],
-                b"before\r\n--" + BOUNDARY + b"X\r\nafter",
-            )
+                file_data,
+            ),
+            ([(b"Content-Disposition", b'form-data; name="status"')], b"complete"),
         ]
     )
 
     assert_matches_django(
         body,
-        1,
+        chunk_size,
         (MemoryFileUploadHandler, TemporaryFileUploadHandler),
         InMemoryUploadedFile,
     )

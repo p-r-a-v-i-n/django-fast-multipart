@@ -321,12 +321,12 @@ def test_rust_parser_error_cleans_up_active_temporary_upload(interrupt_error):
         [file_part("file", "malformed.bin", b"partial-file-data")],
         close=False,
     )
-    body += b"--" + BOUNDARY + b"\n"
+    body += b"--" + BOUNDARY + b" " * 1025
 
     try:
         with pytest.raises(
             MultiPartParserError,
-            match="^Invalid line break after delimiter$",
+            match="^Request max total header size exceeded[.]$",
         ):
             RustMultiPartParser(
                 {

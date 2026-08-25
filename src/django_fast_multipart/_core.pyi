@@ -7,6 +7,7 @@ class MultipartState(enum.IntEnum):
     HEADER = 1
     BODY = 2
     END = 3
+    DISCARD = 4
 
 class PartBegin:
     @property

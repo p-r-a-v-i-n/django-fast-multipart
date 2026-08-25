@@ -20,6 +20,7 @@ feeds the same request body to Django's `MultiPartParser` and
   exception types and messages;
 - exact raw aggregate-header enforcement against Django's 1,024-byte limit;
 - EOF body-buffer flushing for truncated fields and interrupted files;
+- Django-compatible handling of raw boundary tokens embedded in part data;
 - Django's existing parser constructor and return-value contract.
 
 Not yet supported or compatibility-tested:
@@ -37,9 +38,6 @@ header lines that the Rust core rejects. EOF within a boundary delimiter or
 its closing/line-ending suffix can also classify the retained bytes
 differently, including for field-count accounting.
 
-Django 6.1 also terminates a part when file data contains a CRLF followed by a
-boundary prefix and an extra non-delimiter byte (for example,
-`--boundaryX`), while the Rust core preserves that sequence as file data.
 These differences need explicit compatibility and security decisions before
 production use.
 
