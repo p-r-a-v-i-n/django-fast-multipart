@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "django-fast-multipart"
+version = "0.1.0a0"
+description = "Experimental Rust-powered multipart parser adapter for Django"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "django-fast-multipart contributors" }]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Framework :: Django",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+]
+dependencies = [
+    "Django>=6.1,<6.2",
+    "rust-multipart @ git+https://github.com/Kludex/rust-multipart.git@0bc3df5a55a139d133dc6e2e73f112a08a4e43f8",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "ruff>=0.12",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/django_fast_multipart"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.pytest.ini_options]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "RUF100"]
