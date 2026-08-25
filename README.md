@@ -16,21 +16,40 @@ feeds the same request body to Django's `MultiPartParser` and
 - `TemporaryFileUploadHandler`;
 - `StopFutureHandlers`, `SkipFile`, and both `StopUpload` modes;
 - interrupted-upload signaling and temporary-file cleanup;
+- field-memory, field-count, and file-count upload limits with Django's
+  exception types and messages;
+- multipart per-line and header-count bounds, plus lower-bound aggregate
+  checks against Django's 1,024-byte limit;
 - Django's existing parser constructor and return-value contract.
 
 Not yet supported or compatibility-tested:
 
 - `Content-Transfer-Encoding: base64`;
 - boundaries longer than the Rust core's RFC 2046 limit of 70 bytes;
-- Django's complete malformed-input behavior;
+- exact aggregate-header accounting when the Rust core trims raw whitespace;
+- Django's tolerant malformed-header and truncated-field behavior;
 - remaining custom upload-handler callback and short-circuit edge cases;
-- all Django upload limits and exception equivalence.
+- preamble, epilogue, and post-closing-boundary compatibility.
 
-The compatibility suite currently records one strict expected difference:
-Django 6.1 terminates a part when file data contains a CRLF followed by a
+The compatibility suite records the remaining differences as strict expected
+failures. Django accepts boundary values through 201 bytes, while the Rust
+core enforces RFC 2046's 70-byte maximum. Django also tolerates malformed
+header lines and returns partial text fields at EOF; the Rust core rejects
+those inputs. Raw header whitespace cannot yet be counted exactly because it
+is trimmed before the adapter receives header events.
+
+Django 6.1 also terminates a part when file data contains a CRLF followed by a
 boundary prefix and an extra non-delimiter byte (for example,
 `--boundaryX`), while the Rust core preserves that sequence as file data.
-This needs an explicit compatibility/security decision before production use.
+These differences need explicit compatibility and security decisions before
+production use.
+
+In particular, the multipart header limit is not yet security-equivalent to
+Django's. The Rust core trims whitespace before emitting headers, so the
+adapter cannot recover the exact raw aggregate size. Individually bounded
+headers can therefore exceed Django's 1,024-byte total. Exact enforcement
+requires the Rust parser to accept a total-header limit or expose the raw byte
+count.
 
 The Rust dependency is pinned to commit
 `0bc3df5a55a139d133dc6e2e73f112a08a4e43f8` so results remain reproducible

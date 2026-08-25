@@ -30,28 +30,6 @@ PARSERS = [
     pytest.param(MultiPartParser, id="django"),
     pytest.param(RustMultiPartParser, id="rust"),
 ]
-PENDING_HEADER_PARSERS = [
-    pytest.param(MultiPartParser, id="django"),
-    pytest.param(
-        RustMultiPartParser,
-        id="rust",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="Django's total multipart header limit is not enforced yet.",
-        ),
-    ),
-]
-PENDING_LIMIT_PARSERS = [
-    pytest.param(MultiPartParser, id="django"),
-    pytest.param(
-        RustMultiPartParser,
-        id="rust",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="This Django limit-accounting edge is not implemented yet.",
-        ),
-    ),
-]
 CORE_GAP_PARSERS = [
     pytest.param(MultiPartParser, id="django"),
     pytest.param(
@@ -151,8 +129,8 @@ def test_field_memory_limit_matches_django(parser_class):
             assert files == {}
 
 
-@pytest.mark.parametrize("parser_class", PENDING_LIMIT_PARSERS)
-def test_empty_field_name_cost_is_included_in_memory_limit(parser_class):
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_empty_field_still_includes_name_cost_in_memory_limit(parser_class):
     body = make_body([field_part("a", b"")])
 
     with override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=2):
@@ -162,6 +140,28 @@ def test_empty_field_name_cost_is_included_in_memory_limit(parser_class):
             RequestDataTooBig,
             TOO_MUCH_DATA_MESSAGE,
         )
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_field_memory_limit_is_cumulative(parser_class):
+    body = make_body(
+        [
+            field_part("a", b"x"),
+            field_part("bb", b"yy"),
+        ]
+    )
+
+    with override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=9):
+        assert_parse_error(
+            parser_class,
+            body,
+            RequestDataTooBig,
+            TOO_MUCH_DATA_MESSAGE,
+        )
+    with override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=10):
+        with parsed_with(parser_class, body) as (post, _):
+            assert post.get("a") == "x"
+            assert post.get("bb") == "yy"
 
 
 @pytest.mark.parametrize("parser_class", PARSERS)
@@ -204,7 +204,7 @@ def test_field_count_limit_matches_django(parser_class):
     ],
     ids=["missing-name", "raw-part"],
 )
-@pytest.mark.parametrize("parser_class", PENDING_LIMIT_PARSERS)
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_ignored_parts_are_included_in_field_count(parser_class, ignored_headers):
     body = make_body(
         [
@@ -244,7 +244,7 @@ def test_file_count_limit_matches_django(parser_class):
             assert files == {}
 
 
-@pytest.mark.parametrize("parser_class", PENDING_LIMIT_PARSERS)
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_sanitized_away_filename_is_included_in_file_count(parser_class):
     body = make_body(
         [
@@ -260,6 +260,31 @@ def test_sanitized_away_filename_is_included_in_file_count(parser_class):
             TooManyFilesSent,
             TOO_MANY_FILES_MESSAGE,
         )
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_unnamed_file_does_not_consume_field_or_file_quota(parser_class):
+    unnamed_file = (
+        [
+            b'Content-Disposition: form-data; filename="ignored.bin"',
+            b"Content-Type: application/octet-stream",
+        ],
+        b"ignored",
+    )
+    body = make_body(
+        [
+            unnamed_file,
+            file_part("valid", "valid.bin", b"valid"),
+        ]
+    )
+
+    with override_settings(
+        DATA_UPLOAD_MAX_NUMBER_FIELDS=0,
+        DATA_UPLOAD_MAX_NUMBER_FILES=1,
+    ):
+        with parsed_with(parser_class, body) as (post, files):
+            assert post == {}
+            assert files == {}
 
 
 @pytest.mark.parametrize("parser_class", PARSERS)
@@ -388,7 +413,7 @@ def test_boundary_over_201_bytes_is_rejected(parser_class):
             pass
 
 
-@pytest.mark.parametrize("parser_class", PENDING_HEADER_PARSERS)
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_single_long_header_enforces_total_header_limit(parser_class):
     body = make_body(
         [
@@ -408,7 +433,66 @@ def test_single_long_header_enforces_total_header_limit(parser_class):
     )
 
 
-@pytest.mark.parametrize("parser_class", PENDING_HEADER_PARSERS)
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_single_header_enforces_exact_size_boundary(parser_class):
+    accepted_header = b"X: " + b"x" * 1015
+    rejected_header = accepted_header + b"x"
+    assert len(accepted_header) + 6 == 1024
+    assert len(rejected_header) + 6 == 1025
+
+    with parsed_with(parser_class, make_body([([accepted_header], b"")])) as (
+        post,
+        files,
+    ):
+        assert post == {}
+        assert files == {}
+    assert_parse_error(
+        parser_class,
+        make_body([([rejected_header], b"")]),
+        MultiPartParserError,
+        HEADER_TOO_LARGE_MESSAGE,
+    )
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_minimal_headers_enforce_exact_count_boundary(parser_class):
+    accepted_body = make_body([([b"X:"] * 255, b"")])
+    rejected_body = make_body([([b"X:"] * 256, b"")])
+
+    with parsed_with(parser_class, accepted_body) as (post, files):
+        assert post == {}
+        assert files == {}
+    assert_parse_error(
+        parser_class,
+        rejected_body,
+        MultiPartParserError,
+        HEADER_TOO_LARGE_MESSAGE,
+    )
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_combined_headers_enforce_exact_size_boundary(parser_class):
+    first_header = b"X:" + b"x" * 500
+    accepted_second_header = b"Y:" + b"y" * 512
+    rejected_second_header = accepted_second_header + b"y"
+    assert len(first_header) + len(accepted_second_header) + 8 == 1024
+    assert len(first_header) + len(rejected_second_header) + 8 == 1025
+
+    with parsed_with(
+        parser_class,
+        make_body([([first_header, accepted_second_header], b"")]),
+    ) as (post, files):
+        assert post == {}
+        assert files == {}
+    assert_parse_error(
+        parser_class,
+        make_body([([first_header, rejected_second_header], b"")]),
+        MultiPartParserError,
+        HEADER_TOO_LARGE_MESSAGE,
+    )
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_combined_headers_enforce_total_header_limit(parser_class):
     headers = tuple(
         f"X-Padding-{index}: ".encode() + b"x" * 50
@@ -424,7 +508,7 @@ def test_combined_headers_enforce_total_header_limit(parser_class):
     )
 
 
-@pytest.mark.parametrize("parser_class", PENDING_HEADER_PARSERS)
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_more_than_eight_small_headers_are_accepted(parser_class):
     headers = tuple(f"X-Small-{index}: value".encode() for index in range(9))
     body = make_body([field_part("name", b"value", extra_headers=headers)])
@@ -440,6 +524,21 @@ def test_raw_header_whitespace_gap_is_recorded(parser_class):
         for index in range(10)
     )
     body = make_body([field_part("name", b"value", extra_headers=headers)])
+
+    assert_parse_error(
+        parser_class,
+        body,
+        MultiPartParserError,
+        HEADER_TOO_LARGE_MESSAGE,
+    )
+
+
+@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
+def test_post_colon_space_header_size_gap_is_recorded(parser_class):
+    first_header = b"X: " + b"x" * 499
+    second_header = b"Y: " + b"y" * 512
+    assert len(first_header) + len(second_header) + 8 == 1025
+    body = make_body([([first_header, second_header], b"")])
 
     assert_parse_error(
         parser_class,

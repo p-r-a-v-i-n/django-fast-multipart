@@ -13,7 +13,7 @@ from django.core.files.uploadhandler import (
     StopUpload,
     TemporaryFileUploadHandler,
 )
-from django.http.multipartparser import MultiPartParser
+from django.http.multipartparser import MultiPartParser, MultiPartParserError
 
 from django_fast_multipart import RustMultiPartParser
 
@@ -97,9 +97,10 @@ class RecordingUploadHandler(FileUploadHandler):
 
 
 class RecordingTemporaryFileUploadHandler(TemporaryFileUploadHandler):
-    def __init__(self):
+    def __init__(self, *, interrupt_error=False):
         super().__init__()
         self.calls = []
+        self.interrupt_error = interrupt_error
         self.temporary_path = None
 
     def handle_raw_input(self, input_data, META, content_length, boundary, encoding=None):
@@ -120,6 +121,8 @@ class RecordingTemporaryFileUploadHandler(TemporaryFileUploadHandler):
 
     def upload_interrupted(self):
         self.calls.append(("upload_interrupted",))
+        if self.interrupt_error:
+            raise RuntimeError("upload interruption cleanup failed")
         return super().upload_interrupted()
 
     def upload_complete(self):
@@ -304,3 +307,39 @@ def test_interrupted_upload_is_cleaned_up(parser_class):
         assert "file_complete" not in call_names(handler)
         assert call_names(handler).count("upload_interrupted") == 1
         assert call_names(handler).count("upload_complete") == 1
+
+
+@pytest.mark.parametrize("interrupt_error", [False, True])
+def test_rust_parser_error_cleans_up_active_temporary_upload(interrupt_error):
+    handler = RecordingTemporaryFileUploadHandler(interrupt_error=interrupt_error)
+    body = make_body(
+        [file_part("file", "malformed.bin", b"partial-file-data")],
+        close=False,
+    )
+    body += b"--" + BOUNDARY + b"\n"
+
+    try:
+        with pytest.raises(
+            MultiPartParserError,
+            match="^Invalid line break after delimiter$",
+        ):
+            RustMultiPartParser(
+                {
+                    "CONTENT_LENGTH": str(len(body)),
+                    "CONTENT_TYPE": (
+                        f"multipart/form-data; boundary={BOUNDARY.decode()}"
+                    ),
+                },
+                ChunkedInput(body),
+                [handler],
+                "utf-8",
+            ).parse()
+
+        assert handler.temporary_path is not None
+        assert handler.file.closed
+        assert not os.path.exists(handler.temporary_path)
+        assert call_names(handler).count("upload_interrupted") == 1
+        assert "upload_complete" not in call_names(handler)
+    finally:
+        if hasattr(handler, "file") and not handler.file.closed:
+            handler.file.close()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass, field
 
 from django.conf import settings
@@ -10,11 +11,25 @@ from django.core.exceptions import (
 )
 from django.core.files.uploadhandler import SkipFile, StopFutureHandlers, StopUpload
 from django.http import QueryDict
-from django.http.multipartparser import MultiPartParser, MultiPartParserError
+from django.http.multipartparser import (
+    MAX_TOTAL_HEADER_SIZE,
+    MultiPartParser,
+    MultiPartParserError,
+)
 from django.utils.datastructures import MultiValueDict
 from django.utils.encoding import force_str
 from django.utils.http import parse_header_parameters
 from rust_multipart import MultipartParser, PartBegin, PartData, PartEnd
+
+HEADER_TOO_LARGE_MESSAGE = "Request max total header size exceeded."
+RUST_HEADER_LIMIT_ERRORS = {
+    "Header line exceeds maximum size.",
+    "Part exceeds maximum header count.",
+}
+# Django's boundary stream includes a leading CRLF and the terminating CRLFCRLF.
+# These core limits bound input until the aggregate check can run at PartBegin.
+MAX_HEADER_COUNT = (MAX_TOTAL_HEADER_SIZE - 2) // 4
+MAX_HEADER_LINE_SIZE = MAX_TOTAL_HEADER_SIZE - 6
 
 
 @dataclass
@@ -58,9 +73,13 @@ class RustMultiPartParser(MultiPartParser):
         self._unfinished_upload = False
 
         try:
-            parser = MultipartParser(self._boundary)
+            parser = MultipartParser(
+                self._boundary,
+                max_header_count=MAX_HEADER_COUNT,
+                max_header_size=MAX_HEADER_LINE_SIZE,
+            )
         except (RuntimeError, ValueError) as exc:
-            raise MultiPartParserError(str(exc)) from exc
+            raise self._multipart_error(exc) from exc
 
         current_part: _Part | None = None
         try:
@@ -103,7 +122,11 @@ class RustMultiPartParser(MultiPartParser):
             if not exc.connection_reset:
                 self._drain_input()
         except (RuntimeError, ValueError) as exc:
-            raise MultiPartParserError(str(exc)) from exc
+            self._abort_upload()
+            raise self._multipart_error(exc) from exc
+        except Exception:
+            self._abort_upload()
+            raise
         else:
             if self._unfinished_upload:
                 self._interrupt_upload()
@@ -115,17 +138,33 @@ class RustMultiPartParser(MultiPartParser):
     def _begin_part(self, raw_headers: list[tuple[bytes, bytes]]) -> _Part:
         headers = self._parse_headers(raw_headers)
         content_disposition = headers.get("content-disposition")
-        if content_disposition is None:
-            return _Part(ignored=True)
-
-        _, disposition = content_disposition
+        disposition = content_disposition[1] if content_disposition else {}
         raw_field_name = disposition.get("name")
-        if raw_field_name is None:
-            return _Part(ignored=True)
-
-        field_name = force_str(raw_field_name.strip(), self._encoding, errors="replace")
         raw_file_name = disposition.get("filename")
         is_file = bool(raw_file_name)
+
+        if is_file:
+            if raw_field_name is None:
+                return _Part(is_file=True, ignored=True)
+            self._file_count += 1
+            maximum_files = settings.DATA_UPLOAD_MAX_NUMBER_FILES
+            if maximum_files is not None and self._file_count > maximum_files:
+                raise TooManyFilesSent(
+                    "The number of files exceeded "
+                    "settings.DATA_UPLOAD_MAX_NUMBER_FILES."
+                )
+        else:
+            self._field_count += 1
+            maximum_fields = settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
+            if maximum_fields is not None and self._field_count > maximum_fields:
+                raise TooManyFieldsSent(
+                    "The number of GET/POST parameters exceeded "
+                    "settings.DATA_UPLOAD_MAX_NUMBER_FIELDS."
+                )
+            if raw_field_name is None:
+                return _Part(ignored=True)
+
+        field_name = force_str(raw_field_name.strip(), self._encoding, errors="replace")
         file_name = None
         ignored = False
         if is_file:
@@ -166,29 +205,21 @@ class RustMultiPartParser(MultiPartParser):
             started=is_file and not ignored,
             counters=[0] * len(self._upload_handlers),
         )
-
-        if ignored:
-            return part
-        if is_file:
-            self._file_count += 1
-            maximum_files = settings.DATA_UPLOAD_MAX_NUMBER_FILES
-            if maximum_files is not None and self._file_count > maximum_files:
-                raise TooManyFilesSent(
-                    "The number of files exceeded settings.DATA_UPLOAD_MAX_NUMBER_FILES."
-                )
-        else:
-            self._field_count += 1
-            maximum_fields = settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
-            if maximum_fields is not None and self._field_count > maximum_fields:
-                raise TooManyFieldsSent(
-                    "The number of GET/POST parameters exceeded "
-                    "settings.DATA_UPLOAD_MAX_NUMBER_FIELDS."
-                )
         return part
 
     def _parse_headers(
         self, raw_headers: list[tuple[bytes, bytes]]
     ) -> dict[str, tuple[str, dict[str, str]]]:
+        # The Rust core trims header whitespace. This is the exact lower bound
+        # still recoverable from its events: one colon and one CRLF per line,
+        # plus Django's leading CRLF and the final blank CRLF.
+        minimum_header_size = 4 + sum(
+            len(raw_name) + len(raw_value) + 3
+            for raw_name, raw_value in raw_headers
+        )
+        if minimum_header_size > MAX_TOTAL_HEADER_SIZE:
+            raise MultiPartParserError(HEADER_TOO_LARGE_MESSAGE)
+
         headers = {}
         for raw_name, raw_value in raw_headers:
             try:
@@ -218,12 +249,7 @@ class RustMultiPartParser(MultiPartParser):
             return
         if not part.is_file:
             part.data.extend(data)
-            maximum_size = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
-            projected_size = self._field_bytes + len(part.data) + len(part.field_name or "") + 2
-            if maximum_size is not None and projected_size > maximum_size:
-                raise RequestDataTooBig(
-                    "Request body exceeded settings.DATA_UPLOAD_MAX_MEMORY_SIZE."
-                )
+            self._check_field_memory_size(part)
             return
 
         chunk: bytes | None = data
@@ -242,6 +268,7 @@ class RustMultiPartParser(MultiPartParser):
         if part.ignored:
             return
         if not part.is_file:
+            self._check_field_memory_size(part)
             self._field_bytes += len(part.data) + len(part.field_name or "") + 2
             self._post.appendlist(
                 part.field_name,
@@ -258,6 +285,31 @@ class RustMultiPartParser(MultiPartParser):
                 self._files.appendlist(part.field_name, uploaded_file)
                 break
         self._unfinished_upload = False
+
+    def _check_field_memory_size(self, part: _Part) -> None:
+        maximum_size = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+        projected_size = (
+            self._field_bytes + len(part.data) + len(part.field_name or "") + 2
+        )
+        if maximum_size is not None and projected_size > maximum_size:
+            raise RequestDataTooBig(
+                "Request body exceeded settings.DATA_UPLOAD_MAX_MEMORY_SIZE."
+            )
+
+    def _abort_upload(self) -> None:
+        if self._unfinished_upload:
+            with suppress(Exception):
+                self._interrupt_upload()
+        self._unfinished_upload = False
+        with suppress(Exception):
+            self._close_files()
+
+    @staticmethod
+    def _multipart_error(exc: RuntimeError | ValueError) -> MultiPartParserError:
+        message = str(exc)
+        if message in RUST_HEADER_LIMIT_ERRORS:
+            message = HEADER_TOO_LARGE_MESSAGE
+        return MultiPartParserError(message)
 
     def _interrupt_upload(self) -> None:
         for handler in self._upload_handlers:
