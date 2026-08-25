@@ -41,11 +41,13 @@ def collect_parts(events: list[Event]) -> list[tuple[list[tuple[bytes, bytes]], 
 
 
 def test_constructor_validation() -> None:
-    with pytest.raises(ValueError, match="Boundary length must be between 1 and 70 characters"):
+    message = "Boundary length must be between 1 and 201 bytes"
+
+    with pytest.raises(ValueError, match=message):
         MultipartParser(b"")
-    MultipartParser(b"x" * 70)
-    with pytest.raises(ValueError, match="Boundary length must be between 1 and 70 characters"):
-        MultipartParser(b"x" * 71)
+    MultipartParser(b"x" * 201)
+    with pytest.raises(ValueError, match=message):
+        MultipartParser(b"x" * 202)
 
 
 @pytest.fixture
