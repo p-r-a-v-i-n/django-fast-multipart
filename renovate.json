@@ -54,52 +54,12 @@
       "groupName": "GitHub Actions"
     },
     {
-      "description": "Let the digest manager handle the direct Rust dependency",
-      "matchManagers": ["pep621"],
-      "matchPackageNames": ["rust-multipart"],
-      "enabled": false
-    },
-    {
-      "description": "Update every copy of the pinned Rust fork digest together",
-      "matchManagers": ["custom.regex"],
-      "matchPackageNames": [
-        "https://github.com/p-r-a-v-i-n/rust-multipart"
-      ],
-      "groupName": "rust-multipart fork digest"
-    },
-    {
       "description": "Require approval for major updates",
       "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": true
     }
   ],
   "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Track the rust-multipart feed-eof branch digest",
-      "managerFilePatterns": ["/^pyproject\\.toml$/", "/^uv\\.lock$/"],
-      "matchStrings": [
-        "rust-multipart @ git\\+https://github\\.com/p-r-a-v-i-n/rust-multipart\\.git@(?<currentDigest>[a-f0-9]{40})",
-        "rust-multipart\", git = \"https://github\\.com/p-r-a-v-i-n/rust-multipart\\.git\\?rev=(?<currentDigest>[a-f0-9]{40})"
-      ],
-      "currentValueTemplate": "feed-eof",
-      "depNameTemplate": "rust-multipart fork",
-      "packageNameTemplate": "https://github.com/p-r-a-v-i-n/rust-multipart",
-      "datasourceTemplate": "git-refs"
-    },
-    {
-      "customType": "regex",
-      "description": "Keep both resolved Rust lockfile digests identical",
-      "managerFilePatterns": ["/^uv\\.lock$/"],
-      "matchStrings": [
-        "source = \\{ git = \"https://github\\.com/p-r-a-v-i-n/rust-multipart\\.git\\?rev=(?<currentDigest>[a-f0-9]{40})#[a-f0-9]{40}\" \\}"
-      ],
-      "autoReplaceStringTemplate": "source = { git = \"https://github.com/p-r-a-v-i-n/rust-multipart.git?rev={{newDigest}}#{{newDigest}}\" }",
-      "currentValueTemplate": "feed-eof",
-      "depNameTemplate": "rust-multipart fork",
-      "packageNameTemplate": "https://github.com/p-r-a-v-i-n/rust-multipart",
-      "datasourceTemplate": "git-refs"
-    },
     {
       "customType": "regex",
       "description": "Track the uv version used by GitHub Actions",

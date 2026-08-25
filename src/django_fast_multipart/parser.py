@@ -19,7 +19,8 @@ from django.http.multipartparser import (
 from django.utils.datastructures import MultiValueDict
 from django.utils.encoding import force_str
 from django.utils.http import parse_header_parameters
-from rust_multipart import MultipartParser, PartBegin, PartData, PartEnd
+
+from django_fast_multipart._core import MultipartParser, PartBegin, PartData, PartEnd
 
 HEADER_TOO_LARGE_MESSAGE = "Request max total header size exceeded."
 RUST_HEADER_LIMIT_ERRORS = {
@@ -48,7 +49,7 @@ class _Part:
 
 
 class RustMultiPartParser(MultiPartParser):
-    """Experimental Django adapter for ``rust_multipart.MultipartParser``."""
+    """Experimental Django adapter for the internal Rust multipart parser."""
 
     def _parse(self):
         if self._content_length == 0:

@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling>=1.27"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
 
 [project]
 name = "django-fast-multipart"
@@ -9,7 +9,7 @@ description = "Experimental Rust-powered multipart parser adapter for Django"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "Pravin" }]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -19,20 +19,25 @@ classifiers = [
 ]
 dependencies = [
     "Django>=6.1,<6.2",
-    "rust-multipart @ git+https://github.com/p-r-a-v-i-n/rust-multipart.git@2fc31ceeec0b980fcfe37b9ee2ed0fb3b2b7f437",
 ]
+
+[project.urls]
+Repository = "https://github.com/p-r-a-v-i-n/django-fast-multipart"
+Issues = "https://github.com/p-r-a-v-i-n/django-fast-multipart/issues"
 
 [dependency-groups]
 dev = [
+    "maturin>=1.7,<2",
     "pytest>=8.4",
     "ruff>=0.12",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/django_fast_multipart"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
+[tool.maturin]
+manifest-path = "rust/Cargo.toml"
+python-source = "src"
+module-name = "django_fast_multipart._core"
+bindings = "pyo3"
+include = [{ path = "rust/Cargo.lock", format = "sdist" }]
 
 [tool.pytest.ini_options]
 addopts = ["-ra", "--strict-config", "--strict-markers"]

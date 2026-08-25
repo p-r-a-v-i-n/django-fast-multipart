@@ -43,9 +43,11 @@ boundary prefix and an extra non-delimiter byte (for example,
 These differences need explicit compatibility and security decisions before
 production use.
 
-The Rust dependency is pinned to commit
-`2fc31ceeec0b980fcfe37b9ee2ed0fb3b2b7f437` in the project fork so results
-remain reproducible while the two proposed upstream APIs are reviewed.
+The audited Rust core is included in this repository and built as the private
+`django_fast_multipart._core` extension. It is derived from `rust-multipart`
+commit `2fc31ceeec0b980fcfe37b9ee2ed0fb3b2b7f437`; provenance and licensing are
+recorded in `THIRD_PARTY_NOTICES.md`. Installation no longer depends on a Git
+checkout or on changes being accepted upstream.
 
 ## Development
 
@@ -55,6 +57,8 @@ The reproducible baseline uses the released Django 6.1 series:
 uv sync
 uv run pytest
 uv run ruff check .
+cargo fmt --manifest-path rust/Cargo.toml --check
+cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets --all-features -- -D warnings
 ```
 
 To run the same differential suite against the sibling Django development

@@ -5,3 +5,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+rust/target/
+src/django_fast_multipart/*.so
+src/django_fast_multipart/*.pyd
+src/django_fast_multipart/*.dylib
