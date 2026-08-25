@@ -196,23 +196,53 @@ def test_finish_rejects_truncated_message(parser: MultipartParser) -> None:
         parser.finish()
 
 
-def test_feed_eof_flushes_retained_body_data_without_ending_part() -> None:
+@pytest.mark.parametrize(
+    ("suffix", "state"),
+    [
+        (b"", MultipartState.END),
+        (b"-", MultipartState.DISCARD),
+        (b"\r", MultipartState.DISCARD),
+        (b" ", MultipartState.DISCARD),
+        (b"\t", MultipartState.DISCARD),
+        (b" \t", MultipartState.DISCARD),
+    ],
+)
+def test_feed_eof_completes_part_at_boundary_with_incomplete_suffix(
+    suffix: bytes, state: MultipartState
+) -> None:
     prefix = b"--boundary\r\nContent-Disposition: form-data; name=field\r\n\r\n"
-    data = b"value\r\n--boundary-"
+    data = b"value\r\n--boundary" + suffix
     parser = MultipartParser(b"boundary")
 
     events = feed(parser, prefix + data, [1] * (len(prefix) + len(data)))
     eof_events = parser.feed_eof()
 
+    assert len(eof_events) == 1
+    assert isinstance(eof_events[0], PartEnd)
+    assert collect_parts(events + eof_events) == [
+        ([(b"Content-Disposition", b"form-data; name=field")], b"value")
+    ]
+    assert parser.state == state
+    if state == MultipartState.END:
+        parser.finish()
+    else:
+        with pytest.raises(ValueError, match="closing boundary not received"):
+            parser.finish()
+
+
+def test_feed_eof_flushes_partial_boundary_token_as_body_data() -> None:
+    prefix = b"--boundary\r\n\r\n"
+    data = b"value\r\n--boundar"
+    parser = MultipartParser(b"boundary")
+
+    events = parser.feed(prefix + data)
+    eof_events = parser.feed_eof()
+
     assert (
         b"".join(event.data for event in events + eof_events if isinstance(event, PartData)) == data
     )
-    assert len(eof_events) == 1
-    assert isinstance(eof_events[0], PartData)
     assert not any(isinstance(event, PartEnd) for event in events + eof_events)
     assert parser.state == MultipartState.BODY
-    with pytest.raises(ValueError, match="closing boundary not received"):
-        parser.finish()
 
 
 def test_feed_eof_discards_data_after_invalid_boundary_token() -> None:
