@@ -1,66 +1,95 @@
 # django-fast-multipart
 
-`django-fast-multipart` is an experimental adapter between Django's multipart
-upload interface and the Rust-powered
-[`rust-multipart`](https://github.com/Kludex/rust-multipart) sans-I/O parser.
+`django-fast-multipart` provides a Rust-backed implementation of Django's
+multipart upload parser interface. It uses the
+`HttpRequest.multipart_parser_class` extension point introduced in Django 6.1
+and integrates with Django's existing upload-handler contract.
 
-The first goal is compatibility evidence, not a production release. Each test
-feeds the same request body to Django's `MultiPartParser` and
-`RustMultiPartParser`, then compares the resulting `POST` and `FILES` values.
+The project is currently pre-alpha. Its behavior is tested against Django's
+`MultiPartParser`, but known compatibility differences remain and should be
+reviewed before production use.
 
-## Current spike scope
+## Compatibility
 
-- normal and repeated text fields;
+The differential test suite sends identical request bodies through Django's
+parser and `RustMultiPartParser`, then compares the resulting `POST` and
+`FILES` values, exceptions, stream consumption, and upload-handler callbacks.
+
+The following behavior is covered:
+
+- normal and repeated form fields;
 - incremental request reads, including one-byte chunks;
-- `MemoryFileUploadHandler`;
-- `TemporaryFileUploadHandler`;
+- in-memory and temporary-file upload handlers;
 - `StopFutureHandlers`, `SkipFile`, and both `StopUpload` modes;
 - interrupted-upload signaling and temporary-file cleanup;
-- field-memory, field-count, and file-count upload limits with Django's
-  exception types and messages;
-- exact raw aggregate-header enforcement against Django's 1,024-byte limit;
-- EOF body-buffer flushing for truncated fields and interrupted files;
-- Django-compatible handling of raw boundary tokens embedded in part data;
-- Django's existing parser constructor and return-value contract.
+- field-memory, field-count, and file-count limits;
+- Django's 1,024-byte aggregate part-header limit;
+- truncated fields and interrupted files at end of input;
+- raw boundary tokens embedded in part data;
+- Django's parser constructor and return-value contract.
 
-Not yet supported or compatibility-tested:
+Known limitations:
 
-- `Content-Transfer-Encoding: base64`;
-- boundaries longer than the Rust core's RFC 2046 limit of 70 bytes;
-- Django's tolerant malformed-header behavior;
-- remaining custom upload-handler callback and short-circuit edge cases;
-- preamble, epilogue, and post-closing-boundary compatibility.
+- `Content-Transfer-Encoding: base64` is not supported;
+- boundary values longer than the RFC 2046 limit of 70 bytes are rejected,
+  while Django accepts longer values;
+- malformed header lines accepted by Django may be rejected;
+- some end-of-input boundary suffixes differ in classification and field-count
+  accounting;
+- custom upload-handler edge cases beyond those listed above are not yet fully
+  covered;
+- preamble, epilogue, and post-closing-boundary behavior is not yet fully
+  covered.
 
-The compatibility suite records the remaining differences as strict expected
-failures. Django accepts boundary values through 201 bytes, while the Rust
-core enforces RFC 2046's 70-byte maximum. Django also tolerates malformed
-header lines that the Rust core rejects. EOF within a boundary delimiter or
-its closing/line-ending suffix can also classify the retained bytes
-differently, including for field-count accounting.
+Known differences are represented by strict expected failures in the test
+suite, so newly achieved compatibility cannot pass unnoticed.
 
-These differences need explicit compatibility and security decisions before
-production use.
+## Usage
 
-The audited Rust core is included in this repository and built as the private
-`django_fast_multipart._core` extension. It is derived from `rust-multipart`
-commit `2fc31ceeec0b980fcfe37b9ee2ed0fb3b2b7f437`; provenance and licensing are
-recorded in `THIRD_PARTY_NOTICES.md`. Installation no longer depends on a Git
-checkout or on changes being accepted upstream.
+Set the parser class before Django accesses `request.POST` or `request.FILES`:
+
+```python
+from django_fast_multipart import RustMultiPartParser
+
+
+def upload(request):
+    request.multipart_parser_class = RustMultiPartParser
+    uploaded_file = request.FILES["file"]
+    # Process the uploaded file.
+```
+
+The parser can also be selected in middleware when it should apply to multiple
+views. The assignment must occur before another middleware or view reads the
+request body.
+
+## Native core
+
+The native parser is included in this repository and built as the private
+`django_fast_multipart._core` extension. It is derived from
+[`rust-multipart`](https://github.com/Kludex/rust-multipart) commit
+`2fc31ceeec0b980fcfe37b9ee2ed0fb3b2b7f437`. See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for provenance and licensing
+details.
+
+Source distributions include the Rust sources and lockfile; installation does
+not fetch parser code from a Git repository.
 
 ## Development
 
-The reproducible baseline uses the released Django 6.1 series:
+The locked development environment uses the released Django 6.1 series:
 
 ```console
 uv sync
 uv run pytest
 uv run ruff check .
+uv run ruff format --check .
 cargo fmt --manifest-path rust/Cargo.toml --check
 cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets --all-features -- -D warnings
+uv build
 ```
 
-To run the same differential suite against the sibling Django development
-checkout without changing the lockfile:
+Run the same suite against a sibling Django development checkout without
+changing the lockfile:
 
 ```console
 PYTHONPATH=../django uv run --no-sync pytest

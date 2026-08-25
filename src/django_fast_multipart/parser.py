@@ -49,7 +49,7 @@ class _Part:
 
 
 class RustMultiPartParser(MultiPartParser):
-    """Experimental Django adapter for the internal Rust multipart parser."""
+    """Django multipart parser backed by the internal Rust streaming parser."""
 
     def _parse(self):
         if self._content_length == 0:
@@ -198,9 +198,7 @@ class RustMultiPartParser(MultiPartParser):
 
         transfer_encoding = headers.get("content-transfer-encoding")
         if transfer_encoding is not None and transfer_encoding[0].strip() == "base64":
-            raise MultiPartParserError(
-                "Content-Transfer-Encoding: base64 is outside the initial spike scope."
-            )
+            raise MultiPartParserError("Content-Transfer-Encoding: base64 is not supported.")
 
         part = _Part(
             field_name=field_name,

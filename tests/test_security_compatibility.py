@@ -35,7 +35,7 @@ CORE_GAP_PARSERS = [
         id="rust",
         marks=pytest.mark.xfail(
             strict=True,
-            reason="The current Rust core cannot reproduce this Django behavior.",
+            reason="Known compatibility difference in the Rust parser.",
         ),
     ),
 ]

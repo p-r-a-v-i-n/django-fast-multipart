@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "django-fast-multipart"
 version = "0.1.0a0"
-description = "Experimental Rust-powered multipart parser adapter for Django"
+description = "Rust-backed multipart parser for Django"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
