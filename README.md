@@ -86,9 +86,11 @@ cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets --all-featur
 uv build
 ```
 
-Run the same suite against a sibling Django development checkout without
-changing the lockfile:
+### Testing against Django main
+
+CI runs an advisory compatibility suite against Django's main branch. To run
+the same suite with a local Django checkout:
 
 ```console
-PYTHONPATH=../django uv run --no-sync pytest
+PYTHONPATH=/path/to/django uv run --no-sync pytest
 ```
