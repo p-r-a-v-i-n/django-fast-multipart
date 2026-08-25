@@ -9,7 +9,8 @@ description = "Experimental Rust-powered multipart parser adapter for Django"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
-authors = [{ name = "django-fast-multipart contributors" }]
+license-files = ["LICENSE"]
+authors = [{ name = "Pravin" }]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Framework :: Django",
