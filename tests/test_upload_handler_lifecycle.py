@@ -22,6 +22,8 @@ PARSERS = [
     pytest.param(MultiPartParser, id="django"),
     pytest.param(RustMultiPartParser, id="rust"),
 ]
+
+
 class ChunkedInput(BytesIO):
     def __init__(self, body: bytes, chunk_size: int = 1):
         super().__init__(body)
@@ -233,9 +235,7 @@ def test_skip_file_continues_with_later_files(parser_class, skip_phase):
             "skipped",
             "kept",
         ]
-        assert [call[1] for call in handler.calls if call[0] == "file_complete"] == [
-            "keep.bin"
-        ]
+        assert [call[1] for call in handler.calls if call[0] == "file_complete"] == ["keep.bin"]
         assert "upload_interrupted" not in call_names(handler)
         assert call_names(handler).count("upload_complete") == 1
 
@@ -290,13 +290,14 @@ def test_stop_upload_returns_partial_results(parser_class, connection_reset):
 @pytest.mark.parametrize("parser_class", PARSERS)
 def test_interrupted_upload_is_cleaned_up(parser_class):
     handler = RecordingTemporaryFileUploadHandler()
-    body = make_body(
+    complete_body = make_body(
         [
             field_part("before", b"field-value"),
             file_part("file", "partial.bin", b"partial-file-data"),
-        ],
-        close=False,
+        ]
     )
+    body = complete_body[:-8]
+    expected_file_data = body.rsplit(b"\r\n\r\n", 1)[1]
 
     with parsed_with(parser_class, body, [handler]) as (post, files, stream):
         assert post.get("before") == "field-value"
@@ -304,6 +305,10 @@ def test_interrupted_upload_is_cleaned_up(parser_class):
         assert stream.tell() == len(body)
         assert handler.temporary_path is not None
         assert not os.path.exists(handler.temporary_path)
+        assert (
+            b"".join(call[2] for call in handler.calls if call[0] == "receive_data_chunk")
+            == expected_file_data
+        )
         assert "file_complete" not in call_names(handler)
         assert call_names(handler).count("upload_interrupted") == 1
         assert call_names(handler).count("upload_complete") == 1
@@ -326,9 +331,7 @@ def test_rust_parser_error_cleans_up_active_temporary_upload(interrupt_error):
             RustMultiPartParser(
                 {
                     "CONTENT_LENGTH": str(len(body)),
-                    "CONTENT_TYPE": (
-                        f"multipart/form-data; boundary={BOUNDARY.decode()}"
-                    ),
+                    "CONTENT_TYPE": (f"multipart/form-data; boundary={BOUNDARY.decode()}"),
                 },
                 ChunkedInput(body),
                 [handler],

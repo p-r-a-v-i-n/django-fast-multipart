@@ -20,9 +20,7 @@ DEFAULT_BOUNDARY = b"django-fast-multipart-security"
 TOO_MANY_FIELDS_MESSAGE = (
     "The number of GET/POST parameters exceeded settings.DATA_UPLOAD_MAX_NUMBER_FIELDS."
 )
-TOO_MANY_FILES_MESSAGE = (
-    "The number of files exceeded settings.DATA_UPLOAD_MAX_NUMBER_FILES."
-)
+TOO_MANY_FILES_MESSAGE = "The number of files exceeded settings.DATA_UPLOAD_MAX_NUMBER_FILES."
 TOO_MUCH_DATA_MESSAGE = "Request body exceeded settings.DATA_UPLOAD_MAX_MEMORY_SIZE."
 HEADER_TOO_LARGE_MESSAGE = "Request max total header size exceeded."
 
@@ -69,10 +67,7 @@ def field_part(name, value, *, extra_headers=()):
 def file_part(name, file_name, value, *, extra_headers=()):
     return (
         [
-            (
-                f'Content-Disposition: form-data; name="{name}"; '
-                f'filename="{file_name}"'
-            ).encode(),
+            (f'Content-Disposition: form-data; name="{name}"; filename="{file_name}"').encode(),
             b"Content-Type: application/octet-stream",
             *extra_headers,
         ],
@@ -311,9 +306,7 @@ def test_limits_can_be_disabled(parser_class):
 @pytest.mark.parametrize("parser_class", PARSERS)
 def test_non_positive_content_length_ignores_the_body(parser_class, content_length):
     body = make_body([field_part("name", b"value")])
-    metadata = {
-        "CONTENT_TYPE": f"multipart/form-data; boundary={DEFAULT_BOUNDARY.decode()}"
-    }
+    metadata = {"CONTENT_TYPE": f"multipart/form-data; boundary={DEFAULT_BOUNDARY.decode()}"}
     if content_length is not None:
         metadata["CONTENT_LENGTH"] = content_length
     stream = BytesIO(body)
@@ -333,9 +326,7 @@ def test_negative_content_length_is_rejected(parser_class):
         parser_class(
             {
                 "CONTENT_LENGTH": -1,
-                "CONTENT_TYPE": (
-                    f"multipart/form-data; boundary={DEFAULT_BOUNDARY.decode()}"
-                ),
+                "CONTENT_TYPE": (f"multipart/form-data; boundary={DEFAULT_BOUNDARY.decode()}"),
             },
             BytesIO(body),
             [],
@@ -361,8 +352,8 @@ def test_positive_content_length_does_not_bound_a_direct_stream(parser_class):
     assert files == {}
 
 
-@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
-def test_truncated_wsgi_field_behavior_is_recorded(parser_class):
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_truncated_wsgi_field_matches_django(parser_class):
     body = make_body([field_part("name", b"value")])
     content_length = len(body) - 8
     expected_value = body[:content_length].split(b"\r\n\r\n", 1)[1].decode()
@@ -381,6 +372,147 @@ def test_truncated_wsgi_field_behavior_is_recorded(parser_class):
     request.multipart_parser_class = parser_class
 
     assert request.POST.get("name") == expected_value
+
+
+@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
+def test_exact_boundary_token_eof_gap_is_recorded(parser_class):
+    body = make_body([field_part("name", b"value")])[:-4]
+
+    with parsed_with(parser_class, body) as (post, files):
+        assert post.get("name") == "value"
+        assert files == {}
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        pytest.param(b"-", id="closing-dash"),
+        pytest.param(b"\r", id="line-ending-carriage-return"),
+    ],
+)
+@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
+def test_partial_boundary_suffix_eof_field_count_gap_is_recorded(
+    parser_class,
+    suffix,
+):
+    body = (
+        b"--"
+        + DEFAULT_BOUNDARY
+        + b"\r\nX-Ignored: value\r\n\r\ndata\r\n--"
+        + DEFAULT_BOUNDARY
+        + suffix
+    )
+
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=0):
+        assert_parse_error(
+            parser_class,
+            body,
+            TooManyFieldsSent,
+            TOO_MANY_FIELDS_MESSAGE,
+        )
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_eof_after_open_boundary_preserves_completed_field(parser_class):
+    body = make_body([field_part("name", b"value")])[:-4] + b"\r\n"
+
+    with parsed_with(parser_class, body) as (post, files):
+        assert post.get("name") == "value"
+        assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_empty_truncated_field_matches_django(parser_class):
+    headers, _ = field_part("name", b"")
+    body = make_body([(headers, b"")]).split(b"\r\n\r\n", 1)[0] + b"\r\n\r\n"
+
+    with parsed_with(parser_class, body) as (post, files):
+        assert post.get("name") == ""
+        assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_eof_flushed_field_data_enforces_memory_limit(parser_class):
+    headers, _ = field_part("name", b"")
+    body = make_body([(headers, b"")]).split(b"\r\n\r\n", 1)[0]
+    body += b"\r\n\r\nvalue"
+
+    with override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=10):
+        assert_parse_error(
+            parser_class,
+            body,
+            RequestDataTooBig,
+            TOO_MUCH_DATA_MESSAGE,
+        )
+    with override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=11):
+        with parsed_with(parser_class, body) as (post, files):
+            assert post.get("name") == "value"
+            assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_truncated_field_uses_missing_terminal_raw_allowance(parser_class):
+    closing_boundary = b"\r\n--" + DEFAULT_BOUNDARY + b"--\r\n"
+    body = make_body([field_part("name", b"value")])
+    body = body.removesuffix(closing_boundary)
+
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=0):
+        with parsed_with(parser_class, body) as (post, files):
+            assert post.get("name") == "value"
+            assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_field_before_truncated_file_uses_missing_terminal_raw_allowance(
+    parser_class,
+):
+    closing_boundary = b"\r\n--" + DEFAULT_BOUNDARY + b"--\r\n"
+    body = make_body(
+        [
+            field_part("name", b"value"),
+            file_part("file", "data.bin", b"file data"),
+        ]
+    )
+    body = body.removesuffix(closing_boundary)
+    handler = TemporaryFileUploadHandler()
+
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=0):
+        with parsed_with(parser_class, body, handlers=(handler,)) as (post, files):
+            assert post.get("name") == "value"
+            assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_terminal_raw_consumes_field_count_allowance(parser_class):
+    body = make_body(
+        [
+            field_part("name", b"value"),
+            file_part("file", "data.bin", b"file data"),
+        ]
+    )
+
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=0):
+        assert_parse_error(
+            parser_class,
+            body,
+            TooManyFieldsSent,
+            TOO_MANY_FIELDS_MESSAGE,
+        )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"preamble without a boundary",
+        b"--" + DEFAULT_BOUNDARY + b"\r\nX-Incomplete: value",
+    ],
+    ids=["preamble", "mid-header"],
+)
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_eof_before_part_body_returns_empty_results(parser_class, body):
+    with parsed_with(parser_class, body) as (post, files):
+        assert post == {}
+        assert files == {}
 
 
 @pytest.mark.parametrize("boundary_length", [1, 70])
@@ -449,6 +581,23 @@ def test_single_header_enforces_exact_size_boundary(parser_class):
     assert_parse_error(
         parser_class,
         make_body([([rejected_header], b"")]),
+        MultiPartParserError,
+        HEADER_TOO_LARGE_MESSAGE,
+    )
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_incomplete_header_enforces_exact_size_boundary_at_eof(parser_class):
+    prefix = b"--" + DEFAULT_BOUNDARY + b"\r\nX:"
+    accepted_body = prefix + b"x" * 1019
+    rejected_body = prefix + b"x" * 1020
+
+    with parsed_with(parser_class, accepted_body) as (post, files):
+        assert post == {}
+        assert files == {}
+    assert_parse_error(
+        parser_class,
+        rejected_body,
         MultiPartParserError,
         HEADER_TOO_LARGE_MESSAGE,
     )

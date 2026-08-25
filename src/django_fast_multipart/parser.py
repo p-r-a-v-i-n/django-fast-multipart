@@ -71,6 +71,9 @@ class RustMultiPartParser(MultiPartParser):
         self._field_count = 0
         self._file_count = 0
         self._unfinished_upload = False
+        # Django's field-count allowance absorbs a terminal RAW segment when
+        # a boundary follows the last part, but an EOF-truncated part has none.
+        terminal_raw = False
 
         try:
             parser = MultipartParser(
@@ -87,6 +90,7 @@ class RustMultiPartParser(MultiPartParser):
             while chunk := self._input_data.read(self._chunk_size):
                 for event in parser.feed(chunk):
                     if isinstance(event, PartBegin):
+                        terminal_raw = False
                         if current_part is not None:
                             raise MultiPartParserError(
                                 "Received a new multipart part before the previous part ended."
@@ -112,12 +116,19 @@ class RustMultiPartParser(MultiPartParser):
                             )
                         self._finish_part(current_part)
                         current_part = None
+                        terminal_raw = True
+
+            for event in parser.feed_eof():
+                if current_part is None or not isinstance(event, PartData):
+                    raise MultiPartParserError("Received multipart data before part headers.")
+                self._receive_part_data(current_part, event.data)
 
             try:
                 parser.finish()
             except ValueError:
-                if current_part is None or not current_part.started:
-                    raise
+                if current_part is not None and not current_part.is_file:
+                    self._finish_part(current_part)
+                    current_part = None
         except StopUpload as exc:
             self._close_files()
             if not exc.connection_reset:
@@ -129,6 +140,8 @@ class RustMultiPartParser(MultiPartParser):
             self._abort_upload()
             raise
         else:
+            if terminal_raw:
+                self._enforce_field_count()
             if self._unfinished_upload:
                 self._interrupt_upload()
 
@@ -151,17 +164,11 @@ class RustMultiPartParser(MultiPartParser):
             maximum_files = settings.DATA_UPLOAD_MAX_NUMBER_FILES
             if maximum_files is not None and self._file_count > maximum_files:
                 raise TooManyFilesSent(
-                    "The number of files exceeded "
-                    "settings.DATA_UPLOAD_MAX_NUMBER_FILES."
+                    "The number of files exceeded settings.DATA_UPLOAD_MAX_NUMBER_FILES."
                 )
         else:
             self._field_count += 1
-            maximum_fields = settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
-            if maximum_fields is not None and self._field_count > maximum_fields:
-                raise TooManyFieldsSent(
-                    "The number of GET/POST parameters exceeded "
-                    "settings.DATA_UPLOAD_MAX_NUMBER_FIELDS."
-                )
+            self._enforce_field_count(allow_missing_terminal_raw=True)
             if raw_field_name is None:
                 return _Part(ignored=True)
 
@@ -207,6 +214,16 @@ class RustMultiPartParser(MultiPartParser):
             counters=[0] * len(self._upload_handlers),
         )
         return part
+
+    def _enforce_field_count(self, *, allow_missing_terminal_raw: bool = False) -> None:
+        maximum_fields = settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
+        if maximum_fields is None:
+            return
+        maximum_fields += int(allow_missing_terminal_raw)
+        if self._field_count > maximum_fields:
+            raise TooManyFieldsSent(
+                "The number of GET/POST parameters exceeded settings.DATA_UPLOAD_MAX_NUMBER_FIELDS."
+            )
 
     def _parse_headers(
         self, raw_headers: list[tuple[bytes, bytes]]
@@ -279,13 +296,9 @@ class RustMultiPartParser(MultiPartParser):
 
     def _check_field_memory_size(self, part: _Part) -> None:
         maximum_size = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
-        projected_size = (
-            self._field_bytes + len(part.data) + len(part.field_name or "") + 2
-        )
+        projected_size = self._field_bytes + len(part.data) + len(part.field_name or "") + 2
         if maximum_size is not None and projected_size > maximum_size:
-            raise RequestDataTooBig(
-                "Request body exceeded settings.DATA_UPLOAD_MAX_MEMORY_SIZE."
-            )
+            raise RequestDataTooBig("Request body exceeded settings.DATA_UPLOAD_MAX_MEMORY_SIZE.")
 
     def _abort_upload(self) -> None:
         if self._unfinished_upload:
