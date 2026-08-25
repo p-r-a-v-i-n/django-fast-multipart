@@ -374,8 +374,8 @@ def test_truncated_wsgi_field_matches_django(parser_class):
     assert request.POST.get("name") == expected_value
 
 
-@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
-def test_exact_boundary_token_eof_gap_is_recorded(parser_class):
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_exact_boundary_token_at_eof_completes_field(parser_class):
     body = make_body([field_part("name", b"value")])[:-4]
 
     with parsed_with(parser_class, body) as (post, files):
@@ -383,15 +383,49 @@ def test_exact_boundary_token_eof_gap_is_recorded(parser_class):
         assert files == {}
 
 
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_exact_boundary_token_at_eof_does_not_add_raw_field(parser_class):
+    body = b"--" + DEFAULT_BOUNDARY + b"\r\nX-Ignored: value\r\n\r\ndata\r\n--" + DEFAULT_BOUNDARY
+
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=0):
+        with parsed_with(parser_class, body) as (post, files):
+            assert post == {}
+            assert files == {}
+
+
+@pytest.mark.parametrize(
+    ("suffix", "completed"),
+    [
+        pytest.param(b"", False, id="exact-token"),
+        pytest.param(b"-", True, id="partial-closing-suffix"),
+    ],
+)
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_boundary_token_at_eof_matches_file_lifecycle(parser_class, suffix, completed):
+    body = make_body([file_part("file", "data.bin", b"file-data")])[:-4] + suffix
+    handler = TemporaryFileUploadHandler()
+
+    with parsed_with(parser_class, body, handlers=(handler,)) as (post, files):
+        assert post == {}
+        if completed:
+            assert files["file"].read() == b"file-data"
+        else:
+            assert files == {}
+            assert handler.file.closed
+
+
 @pytest.mark.parametrize(
     "suffix",
     [
         pytest.param(b"-", id="closing-dash"),
         pytest.param(b"\r", id="line-ending-carriage-return"),
+        pytest.param(b" ", id="space-padding"),
+        pytest.param(b"\t", id="tab-padding"),
+        pytest.param(b" \t", id="mixed-padding"),
     ],
 )
-@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
-def test_partial_boundary_suffix_eof_field_count_gap_is_recorded(
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_partial_boundary_suffix_at_eof_adds_raw_field(
     parser_class,
     suffix,
 ):

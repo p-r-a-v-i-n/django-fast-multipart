@@ -34,8 +34,6 @@ Known limitations:
 - boundary values longer than the RFC 2046 limit of 70 bytes are rejected,
   while Django accepts longer values;
 - malformed header lines accepted by Django may be rejected;
-- some end-of-input boundary suffixes differ in classification and field-count
-  accounting;
 - custom upload-handler edge cases beyond those listed above are not yet fully
   covered;
 - preamble, epilogue, and post-closing-boundary behavior is not yet fully

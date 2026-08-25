@@ -20,7 +20,13 @@ from django.utils.datastructures import MultiValueDict
 from django.utils.encoding import force_str
 from django.utils.http import parse_header_parameters
 
-from django_fast_multipart._core import MultipartParser, PartBegin, PartData, PartEnd
+from django_fast_multipart._core import (
+    MultipartParser,
+    MultipartState,
+    PartBegin,
+    PartData,
+    PartEnd,
+)
 
 HEADER_TOO_LARGE_MESSAGE = "Request max total header size exceeded."
 RUST_HEADER_LIMIT_ERRORS = {
@@ -119,10 +125,36 @@ class RustMultiPartParser(MultiPartParser):
                         current_part = None
                         terminal_raw = True
 
-            for event in parser.feed_eof():
-                if current_part is None or not isinstance(event, PartData):
+            state_before_eof = parser.state
+            eof_events = parser.feed_eof()
+            exact_boundary_at_eof = (
+                state_before_eof == MultipartState.BODY and parser.state == MultipartState.END
+            )
+            for event in eof_events:
+                if isinstance(event, PartData):
+                    if current_part is None:
+                        raise MultiPartParserError("Received multipart data before part headers.")
+                    self._receive_part_data(current_part, event.data)
+                elif isinstance(event, PartEnd):
+                    if current_part is None:
+                        raise MultiPartParserError(
+                            "Received a multipart part ending without a beginning."
+                        )
+                    # Django defers file completion until it begins the next
+                    # parser segment. An exact boundary token at EOF has no
+                    # next segment, so the active upload remains interrupted.
+                    if not (exact_boundary_at_eof and current_part.is_file):
+                        self._finish_part(current_part)
+                    current_part = None
+                    terminal_raw = True
+                else:
                     raise MultiPartParserError("Received multipart data before part headers.")
-                self._receive_part_data(current_part, event.data)
+
+            # An exact boundary token at EOF ends the part without producing
+            # Django's trailing RAW segment. A partial suffix remains in the
+            # DISCARD state and retains the normal terminal field-count check.
+            if exact_boundary_at_eof:
+                terminal_raw = False
 
             try:
                 parser.finish()

@@ -130,6 +130,28 @@ impl MultipartParser {
         self.eof_received = true;
         self.check_eof_header_size()?;
         self.current_headers.clear();
+
+        if self.state == MultipartState::Body {
+            if let Some(index) = self.dash_boundary_finder.find(&self.buffer) {
+                let after_boundary = index + self.dash_boundary.len();
+                if delimiter_suffix(&self.buffer, after_boundary) == DelimiterSuffix::Incomplete {
+                    let mut events = Vec::new();
+                    self.emit_data(&mut events, body_data_end(&self.buffer, index));
+                    events.push(MultipartEvent::End);
+                    // Django creates a following RAW segment only when bytes
+                    // remain after the boundary token. Preserve that
+                    // distinction for the adapter's field-count accounting.
+                    self.state = if after_boundary == self.buffer.len() {
+                        MultipartState::End
+                    } else {
+                        MultipartState::Discard
+                    };
+                    self.buffer.clear();
+                    return Ok(events);
+                }
+            }
+        }
+
         let data = std::mem::take(&mut self.buffer);
         if self.state == MultipartState::Body && !data.is_empty() {
             return Ok(vec![MultipartEvent::Data { data }]);
