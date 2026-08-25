@@ -14,6 +14,8 @@ feeds the same request body to Django's `MultiPartParser` and
 - incremental request reads, including one-byte chunks;
 - `MemoryFileUploadHandler`;
 - `TemporaryFileUploadHandler`;
+- `StopFutureHandlers`, `SkipFile`, and both `StopUpload` modes;
+- interrupted-upload signaling and temporary-file cleanup;
 - Django's existing parser constructor and return-value contract.
 
 Not yet supported or compatibility-tested:
@@ -21,7 +23,7 @@ Not yet supported or compatibility-tested:
 - `Content-Transfer-Encoding: base64`;
 - boundaries longer than the Rust core's RFC 2046 limit of 70 bytes;
 - Django's complete malformed-input behavior;
-- `SkipFile`, `StopUpload`, and every custom upload-handler lifecycle edge case;
+- remaining custom upload-handler callback and short-circuit edge cases;
 - all Django upload limits and exception equivalence.
 
 The compatibility suite currently records one strict expected difference:

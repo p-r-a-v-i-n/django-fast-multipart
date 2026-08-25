@@ -22,19 +22,6 @@ PARSERS = [
     pytest.param(MultiPartParser, id="django"),
     pytest.param(RustMultiPartParser, id="rust"),
 ]
-PENDING_LIFECYCLE_PARSERS = [
-    pytest.param(MultiPartParser, id="django"),
-    pytest.param(
-        RustMultiPartParser,
-        id="rust",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="Lifecycle behavior is not implemented by the Rust adapter yet.",
-        ),
-    ),
-]
-
-
 class ChunkedInput(BytesIO):
     def __init__(self, body: bytes, chunk_size: int = 1):
         super().__init__(body)
@@ -222,7 +209,7 @@ def test_stop_future_handlers_only_stops_new_file_callbacks(parser_class):
 
 
 @pytest.mark.parametrize("skip_phase", ["new_file", "receive"])
-@pytest.mark.parametrize("parser_class", PENDING_LIFECYCLE_PARSERS)
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_skip_file_continues_with_later_files(parser_class, skip_phase):
     handler = RecordingUploadHandler(
         skip_file_name="skip.bin",
@@ -250,7 +237,7 @@ def test_skip_file_continues_with_later_files(parser_class, skip_phase):
         assert call_names(handler).count("upload_complete") == 1
 
 
-@pytest.mark.parametrize("parser_class", PENDING_LIFECYCLE_PARSERS)
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_skipping_last_file_calls_upload_interrupted(parser_class):
     handler = RecordingUploadHandler(
         skip_file_name="skip.bin",
@@ -272,7 +259,7 @@ def test_skipping_last_file_calls_upload_interrupted(parser_class):
 
 
 @pytest.mark.parametrize("connection_reset", [False, True])
-@pytest.mark.parametrize("parser_class", PENDING_LIFECYCLE_PARSERS)
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_stop_upload_returns_partial_results(parser_class, connection_reset):
     handler = RecordingUploadHandler(stop_connection_reset=connection_reset)
     body = make_body(
@@ -297,7 +284,7 @@ def test_stop_upload_returns_partial_results(parser_class, connection_reset):
             assert stream.tell() == len(body)
 
 
-@pytest.mark.parametrize("parser_class", PENDING_LIFECYCLE_PARSERS)
+@pytest.mark.parametrize("parser_class", PARSERS)
 def test_interrupted_upload_is_cleaned_up(parser_class):
     handler = RecordingTemporaryFileUploadHandler()
     body = make_body(

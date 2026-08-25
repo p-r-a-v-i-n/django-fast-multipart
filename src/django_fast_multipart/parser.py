@@ -8,7 +8,7 @@ from django.core.exceptions import (
     TooManyFieldsSent,
     TooManyFilesSent,
 )
-from django.core.files.uploadhandler import StopFutureHandlers
+from django.core.files.uploadhandler import SkipFile, StopFutureHandlers, StopUpload
 from django.http import QueryDict
 from django.http.multipartparser import MultiPartParser, MultiPartParserError
 from django.utils.datastructures import MultiValueDict
@@ -27,6 +27,7 @@ class _Part:
     content_type_extra: dict[str, bytes] = field(default_factory=dict)
     is_file: bool = False
     ignored: bool = False
+    started: bool = False
     data: bytearray = field(default_factory=bytearray)
     counters: list[int] = field(default_factory=list)
 
@@ -54,6 +55,7 @@ class RustMultiPartParser(MultiPartParser):
         self._field_bytes = 0
         self._field_count = 0
         self._file_count = 0
+        self._unfinished_upload = False
 
         try:
             parser = MultipartParser(self._boundary)
@@ -70,6 +72,13 @@ class RustMultiPartParser(MultiPartParser):
                                 "Received a new multipart part before the previous part ended."
                             )
                         current_part = self._begin_part(event.headers)
+                        if current_part.started:
+                            self._unfinished_upload = True
+                            try:
+                                self._start_file(current_part)
+                            except SkipFile:
+                                self._close_files()
+                                current_part.ignored = True
                     elif isinstance(event, PartData):
                         if current_part is None:
                             raise MultiPartParserError(
@@ -84,15 +93,20 @@ class RustMultiPartParser(MultiPartParser):
                         self._finish_part(current_part)
                         current_part = None
 
-            parser.finish()
+            try:
+                parser.finish()
+            except ValueError:
+                if current_part is None or not current_part.started:
+                    raise
+        except StopUpload as exc:
+            self._close_files()
+            if not exc.connection_reset:
+                self._drain_input()
         except (RuntimeError, ValueError) as exc:
-            if current_part is not None and current_part.is_file:
-                self._interrupt_upload()
             raise MultiPartParserError(str(exc)) from exc
-        except Exception:
-            if current_part is not None and current_part.is_file:
+        else:
+            if self._unfinished_upload:
                 self._interrupt_upload()
-            raise
 
         any(handler.upload_complete() for handler in self._upload_handlers)
         self._post._mutable = False
@@ -149,6 +163,7 @@ class RustMultiPartParser(MultiPartParser):
             content_type_extra=content_type_extra,
             is_file=is_file,
             ignored=ignored,
+            started=is_file and not ignored,
             counters=[0] * len(self._upload_handlers),
         )
 
@@ -161,7 +176,6 @@ class RustMultiPartParser(MultiPartParser):
                 raise TooManyFilesSent(
                     "The number of files exceeded settings.DATA_UPLOAD_MAX_NUMBER_FILES."
                 )
-            self._start_file(part)
         else:
             self._field_count += 1
             maximum_fields = settings.DATA_UPLOAD_MAX_NUMBER_FIELDS
@@ -213,12 +227,16 @@ class RustMultiPartParser(MultiPartParser):
             return
 
         chunk: bytes | None = data
-        for index, handler in enumerate(self._upload_handlers):
-            if chunk is None:
-                break
-            chunk_length = len(chunk)
-            chunk = handler.receive_data_chunk(chunk, part.counters[index])
-            part.counters[index] += chunk_length
+        try:
+            for index, handler in enumerate(self._upload_handlers):
+                if chunk is None:
+                    break
+                chunk_length = len(chunk)
+                chunk = handler.receive_data_chunk(chunk, part.counters[index])
+                part.counters[index] += chunk_length
+        except SkipFile:
+            self._close_files()
+            part.ignored = True
 
     def _finish_part(self, part: _Part) -> None:
         if part.ignored:
@@ -231,12 +249,20 @@ class RustMultiPartParser(MultiPartParser):
             )
             return
 
+        if not part.field_name:
+            return
+
         for index, handler in enumerate(self._upload_handlers):
             uploaded_file = handler.file_complete(part.counters[index])
             if uploaded_file:
                 self._files.appendlist(part.field_name, uploaded_file)
                 break
+        self._unfinished_upload = False
 
     def _interrupt_upload(self) -> None:
         for handler in self._upload_handlers:
             handler.upload_interrupted()
+
+    def _drain_input(self) -> None:
+        while self._input_data.read(64 * 1024):
+            pass
