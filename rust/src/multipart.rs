@@ -27,6 +27,7 @@ pub enum MultipartEvent {
     Begin { headers: Vec<(Vec<u8>, Vec<u8>)> },
     Data { data: Vec<u8> },
     End,
+    Raw,
 }
 
 #[derive(Debug, PartialEq)]
@@ -99,9 +100,6 @@ impl MultipartParser {
         if self.eof_received {
             return Err(PyValueError::new_err("Cannot feed data after EOF."));
         }
-        if self.state == MultipartState::End {
-            return Ok(events);
-        }
         if self
             .max_size
             .is_some_and(|max_size| self.size.saturating_add(data.len()) > max_size)
@@ -116,8 +114,9 @@ impl MultipartParser {
                 MultipartState::Preamble => self.handle_preamble()?,
                 MultipartState::Header => self.handle_header(&mut events)?,
                 MultipartState::Body => self.handle_body(&mut events)?,
-                MultipartState::Discard => self.handle_discard()?,
-                MultipartState::End => false,
+                MultipartState::Discard | MultipartState::End => {
+                    self.handle_raw_segment(&mut events)?
+                }
             };
             if !progressed {
                 return Ok(events);
@@ -171,17 +170,9 @@ impl MultipartParser {
     }
 
     fn handle_preamble(&mut self) -> PyResult<bool> {
-        // RFC 2046 section 5.1.1 requires recipients to ignore text before the first boundary delimiter.
-        let mut search_from = 0;
-        while let Some(relative_index) = self.dash_boundary_finder.find(&self.buffer[search_from..])
-        {
-            let index = search_from + relative_index;
-            let starts_line = index == 0 || (index >= 2 && self.buffer[index - 2..index] == *CRLF);
-            if !starts_line {
-                search_from = index + 1;
-                continue;
-            }
-
+        // Django treats the raw boundary token as a separator even when it
+        // isn't at the beginning of a line.
+        if let Some(index) = self.dash_boundary_finder.find(&self.buffer) {
             let after_boundary = index + self.dash_boundary.len();
             match delimiter_suffix(&self.buffer, after_boundary) {
                 DelimiterSuffix::Open(consumed) => {
@@ -191,7 +182,7 @@ impl MultipartParser {
                     return Ok(true);
                 }
                 DelimiterSuffix::Close => {
-                    self.buffer.clear();
+                    self.buffer.drain(..after_boundary);
                     self.state = MultipartState::End;
                     return Ok(true);
                 }
@@ -200,9 +191,10 @@ impl MultipartParser {
                     self.buffer.drain(..index);
                     return Ok(false);
                 }
-                DelimiterSuffix::Invalid => search_from = index + 1,
-                DelimiterSuffix::BareLineFeed => {
-                    return Err(PyValueError::new_err("Invalid line break after delimiter"));
+                DelimiterSuffix::Invalid | DelimiterSuffix::BareLineFeed => {
+                    self.buffer.drain(..after_boundary);
+                    self.state = MultipartState::Discard;
+                    return Ok(true);
                 }
             }
         }
@@ -215,6 +207,16 @@ impl MultipartParser {
     }
 
     fn handle_header(&mut self, events: &mut Vec<MultipartEvent>) -> PyResult<bool> {
+        let next_boundary = self.dash_boundary_finder.find(&self.buffer);
+        let line_end = memmem::find(&self.buffer, CRLF);
+        if let Some(index) = next_boundary
+            .filter(|boundary| line_end.is_none_or(|line_terminator| *boundary < line_terminator))
+        {
+            self.current_headers.clear();
+            self.current_total_header_size = 0;
+            return self.handle_raw_boundary(events, index);
+        }
+
         if let Some(index) = memmem::find(&self.buffer, CRLF) {
             if index == 0 {
                 self.check_total_header_size(CRLF.len())?;
@@ -339,7 +341,7 @@ impl MultipartParser {
                 DelimiterSuffix::Close => {
                     self.emit_data(events, data_end);
                     events.push(MultipartEvent::End);
-                    self.buffer.clear();
+                    self.buffer.drain(..after_boundary);
                     self.state = MultipartState::End;
                     return Ok(true);
                 }
@@ -372,37 +374,58 @@ impl MultipartParser {
         Ok(false)
     }
 
-    fn handle_discard(&mut self) -> PyResult<bool> {
-        if let Some(index) = self.dash_boundary_finder.find(&self.buffer) {
-            let after_boundary = index + self.dash_boundary.len();
-            match delimiter_suffix(&self.buffer, after_boundary) {
-                DelimiterSuffix::Open(consumed) => {
-                    self.current_total_header_size = consumed - after_boundary;
-                    self.buffer.drain(..consumed);
-                    self.state = MultipartState::Header;
-                    return Ok(true);
-                }
-                DelimiterSuffix::Close => {
-                    self.buffer.clear();
-                    self.state = MultipartState::End;
-                    return Ok(true);
-                }
-                DelimiterSuffix::Incomplete => {
-                    self.buffer.drain(..index);
-                    return Ok(false);
-                }
-                DelimiterSuffix::Invalid | DelimiterSuffix::BareLineFeed => {
-                    self.buffer.drain(..after_boundary);
-                    return Ok(true);
-                }
-            }
+    fn handle_raw_segment(&mut self, events: &mut Vec<MultipartEvent>) -> PyResult<bool> {
+        // Django continues classifying every segment after a boundary token,
+        // including epilogues and data after a closing-boundary marker.
+        let next_boundary = self.dash_boundary_finder.find(&self.buffer);
+        let header_end = memmem::find(&self.buffer, b"\r\n\r\n");
+
+        if header_end.is_some_and(|index| next_boundary.is_none_or(|boundary| index < boundary)) {
+            self.current_headers.clear();
+            self.current_total_header_size = 0;
+            self.state = MultipartState::Header;
+            return Ok(true);
         }
 
-        let retained = self.dash_boundary.len() - 1;
-        if self.buffer.len() > retained {
-            self.buffer.drain(..self.buffer.len() - retained);
+        if let Some(index) = next_boundary {
+            return self.handle_raw_boundary(events, index);
         }
+
+        self.check_total_header_size(self.buffer.len())?;
         Ok(false)
+    }
+
+    fn handle_raw_boundary(
+        &mut self,
+        events: &mut Vec<MultipartEvent>,
+        index: usize,
+    ) -> PyResult<bool> {
+        let after_boundary = index + self.dash_boundary.len();
+        match delimiter_suffix(&self.buffer, after_boundary) {
+            DelimiterSuffix::Open(consumed) => {
+                events.push(MultipartEvent::Raw);
+                self.current_total_header_size = consumed - after_boundary;
+                self.buffer.drain(..consumed);
+                self.state = MultipartState::Header;
+                Ok(true)
+            }
+            DelimiterSuffix::Close => {
+                events.push(MultipartEvent::Raw);
+                self.buffer.drain(..after_boundary);
+                self.state = MultipartState::End;
+                Ok(true)
+            }
+            DelimiterSuffix::Incomplete => {
+                self.buffer.drain(..index);
+                Ok(false)
+            }
+            DelimiterSuffix::Invalid | DelimiterSuffix::BareLineFeed => {
+                events.push(MultipartEvent::Raw);
+                self.buffer.drain(..after_boundary);
+                self.state = MultipartState::Discard;
+                Ok(true)
+            }
+        }
     }
 
     fn emit_data(&self, events: &mut Vec<MultipartEvent>, length: usize) {

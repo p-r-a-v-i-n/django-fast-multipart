@@ -143,6 +143,77 @@ def test_normal_and_repeated_fields_match_django(chunk_size):
     assert_matches_django(body, chunk_size)
 
 
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+@pytest.mark.parametrize(
+    "preamble",
+    [
+        pytest.param(b"standard preamble\r\n", id="line-delimited"),
+        pytest.param(b"inline preamble", id="inline"),
+        pytest.param(b"bare-line-feed\n", id="bare-line-feed"),
+    ],
+)
+def test_preamble_matches_django(preamble, chunk_size):
+    body = preamble + make_body(
+        [
+            ([(b"Content-Disposition", b'form-data; name="value"')], b"field-data"),
+        ]
+    )
+
+    assert_matches_django(body, chunk_size)
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+@pytest.mark.parametrize(
+    "second_part_prefix",
+    [
+        pytest.param(b"--" + BOUNDARY + b"\r\n", id="following-boundary"),
+        pytest.param(b"", id="closing-boundary-segment"),
+    ],
+)
+def test_part_after_closing_boundary_matches_django(second_part_prefix, chunk_size):
+    body = make_body(
+        [
+            ([(b"Content-Disposition", b'form-data; name="first"')], b"one"),
+        ]
+    )
+    body += (
+        second_part_prefix
+        + b'Content-Disposition: form-data; name="second"\r\n\r\n'
+        + b"two\r\n--"
+        + BOUNDARY
+        + b"--\r\n"
+    )
+
+    assert_matches_django(body, chunk_size)
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+def test_part_after_noncanonical_boundary_suffix_matches_django(chunk_size):
+    body = (
+        b"preamble--"
+        + BOUNDARY
+        + b"X ignored\r\n"
+        + b'Content-Disposition: form-data; name="value"\r\n\r\n'
+        + b"field-data\r\n--"
+        + BOUNDARY
+        + b"--\r\n"
+    )
+
+    assert_matches_django(body, chunk_size)
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+def test_boundary_tokens_in_epilogue_match_django(chunk_size):
+    body = make_body(
+        [
+            ([(b"Content-Disposition", b'form-data; name="value"')], b"field-data"),
+        ]
+    )
+    body += b"epilogue--" + BOUNDARY + b"X ignored\r\n--" + BOUNDARY + b"--\r\n"
+
+    assert_matches_django(body, chunk_size)
+
+
 @pytest.mark.parametrize("chunk_size", [1, 7, 64 * 1024])
 def test_memory_file_upload_matches_django(chunk_size):
     body = make_body(

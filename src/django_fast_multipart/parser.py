@@ -28,6 +28,7 @@ from django_fast_multipart._core import (
     PartBegin,
     PartData,
     PartEnd,
+    RawPart,
 )
 
 HEADER_TOO_LARGE_MESSAGE = "Request max total header size exceeded."
@@ -165,6 +166,9 @@ class RustMultiPartParser(MultiPartParser):
                         self._finish_part(current_part)
                         current_part = None
                         terminal_raw = True
+                    elif isinstance(event, RawPart):
+                        self._record_raw_part(current_part)
+                        terminal_raw = True
 
             state_before_eof = parser.state
             eof_events = parser.feed_eof()
@@ -187,6 +191,9 @@ class RustMultiPartParser(MultiPartParser):
                     if not (exact_boundary_at_eof and current_part.is_file):
                         self._finish_part(current_part)
                     current_part = None
+                    terminal_raw = True
+                elif isinstance(event, RawPart):
+                    self._record_raw_part(current_part)
                     terminal_raw = True
                 else:
                     raise MultiPartParserError("Received multipart data before part headers.")
@@ -297,6 +304,14 @@ class RustMultiPartParser(MultiPartParser):
             raise TooManyFieldsSent(
                 "The number of GET/POST parameters exceeded settings.DATA_UPLOAD_MAX_NUMBER_FIELDS."
             )
+
+    def _record_raw_part(self, current_part: _Part | None) -> None:
+        if current_part is not None:
+            raise MultiPartParserError(
+                "Received raw multipart data before the previous part ended."
+            )
+        self._field_count += 1
+        self._enforce_field_count(allow_missing_terminal_raw=True)
 
     def _parse_headers(
         self, raw_headers: list[tuple[bytes, bytes]]

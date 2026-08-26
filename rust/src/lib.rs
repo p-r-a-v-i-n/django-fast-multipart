@@ -11,6 +11,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<bindings::PyPartBegin>()?;
     module.add_class::<bindings::PyPartData>()?;
     module.add_class::<bindings::PyPartEnd>()?;
+    module.add_class::<bindings::PyRawPart>()?;
     module.add_function(wrap_pyfunction!(headers::parse_options_header, module)?)?;
     Ok(())
 }

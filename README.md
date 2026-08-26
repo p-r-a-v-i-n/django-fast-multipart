@@ -29,14 +29,14 @@ The following behavior is covered:
 - Django boundary values through 201 bytes;
 - Django-compatible handling of malformed part-header lines;
 - base64 transfer encoding for form fields and file uploads;
+- preambles, epilogues, raw inter-boundary segments, and parts following a
+  closing-boundary marker;
 - Django's parser constructor and return-value contract.
 
 Known limitations:
 
 - custom upload-handler edge cases beyond those listed above are not yet fully
   covered;
-- preamble, epilogue, and post-closing-boundary behavior is not yet fully
-  covered.
 
 Known differences are represented by strict expected failures in the test
 suite, so newly achieved compatibility cannot pass unnoticed.

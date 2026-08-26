@@ -76,6 +76,16 @@ impl PyPartEnd {
     }
 }
 
+#[pyclass(name = "RawPart", frozen)]
+pub struct PyRawPart;
+
+#[pymethods]
+impl PyRawPart {
+    fn __repr__(&self) -> &'static str {
+        "RawPart()"
+    }
+}
+
 fn event_to_py(py: Python<'_>, event: MultipartEvent) -> PyResult<Py<PyAny>> {
     let object = match event {
         MultipartEvent::Begin { headers } => {
@@ -98,6 +108,7 @@ fn event_to_py(py: Python<'_>, event: MultipartEvent) -> PyResult<Py<PyAny>> {
         )?
         .into_any(),
         MultipartEvent::End => Bound::new(py, PyPartEnd)?.into_any(),
+        MultipartEvent::Raw => Bound::new(py, PyRawPart)?.into_any(),
     };
     Ok(object.unbind())
 }
