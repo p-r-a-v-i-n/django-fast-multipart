@@ -51,8 +51,8 @@ jobs:
       - name: Build fuzz targets
         run: cargo +nightly-2026-08-26 fuzz build --fuzz-dir fuzz
 
-      - name: Run deterministic pull-request smoke test
-        if: github.event_name == 'pull_request'
+      - name: Run deterministic CI smoke test
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         run: >-
           cargo +nightly-2026-08-26 fuzz run --fuzz-dir fuzz multipart_parser --
           -dict=fuzz/dictionaries/multipart_parser.dict
@@ -61,8 +61,8 @@ jobs:
           -max_len=16384
           -timeout=5
 
-      - name: Run scheduled fuzz test
-        if: github.event_name != 'pull_request'
+      - name: Run extended fuzz test
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: >-
           cargo +nightly-2026-08-26 fuzz run --fuzz-dir fuzz multipart_parser --
           -dict=fuzz/dictionaries/multipart_parser.dict
