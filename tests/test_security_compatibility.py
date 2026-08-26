@@ -733,17 +733,81 @@ def test_post_colon_space_enforces_exact_header_limit(parser_class):
     )
 
 
-@pytest.mark.parametrize("parser_class", CORE_GAP_PARSERS)
-def test_malformed_header_line_tolerance_is_recorded(parser_class):
+@pytest.mark.parametrize(
+    "malformed_header",
+    [
+        pytest.param(b"Malformed header without a colon", id="missing-colon"),
+        pytest.param(b": value", id="empty-name"),
+        pytest.param(b"X-Invalid: \xff", id="invalid-utf8"),
+        pytest.param(b"X-Test: one\rX-Other: two", id="bare-carriage-return"),
+        pytest.param(b"X-Test: one\nX-Other: two", id="bare-line-feed"),
+    ],
+)
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_malformed_header_lines_do_not_hide_valid_disposition(parser_class, malformed_header):
     body = make_body(
         [
             field_part(
                 "name",
                 b"value",
-                extra_headers=(b"Malformed header without a colon",),
+                extra_headers=(malformed_header,),
             )
         ]
     )
 
     with parsed_with(parser_class, body) as (post, _):
         assert post.get("name") == "value"
+
+
+@pytest.mark.parametrize("line_break", [b"\r", b"\n"])
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_bare_line_break_in_disposition_is_preserved(parser_class, line_break):
+    header = b"Content-Disposition: form-data; name=field" + line_break + b"X: value"
+    body = make_body([([header], b"data")])
+
+    with parsed_with(parser_class, body) as (post, files):
+        assert post.get("field" + line_break.decode() + "X: value") == "data"
+        assert files == {}
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        b"Content-Disposition form-data; name=field",
+        b" Content-Disposition: form-data; name=field",
+        b"\tContent-Disposition: form-data; name=field",
+        b"Content-Disposition\t: form-data; name=field",
+    ],
+)
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_noncanonical_disposition_names_remain_raw(parser_class, header):
+    body = make_body([([header], b"data")])
+
+    with parsed_with(parser_class, body) as (post, files):
+        assert post == {}
+        assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_trailing_spaces_in_disposition_name_are_accepted(parser_class):
+    body = make_body([([b"Content-Disposition   : form-data; name=field"], b"data")])
+
+    with parsed_with(parser_class, body) as (post, files):
+        assert post.get("field") == "data"
+        assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_empty_header_names_are_bounded_by_total_header_size(parser_class):
+    accepted_headers = [b":"] * 340
+    rejected_headers = [b":"] * 341
+
+    with parsed_with(parser_class, make_body([(accepted_headers, b"")])) as (post, files):
+        assert post == {}
+        assert files == {}
+    assert_parse_error(
+        parser_class,
+        make_body([(rejected_headers, b"")]),
+        MultiPartParserError,
+        HEADER_TOO_LARGE_MESSAGE,
+    )

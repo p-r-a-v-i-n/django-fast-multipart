@@ -360,15 +360,10 @@ def test_reports_incomplete_boundaries_by_state() -> None:
     assert not any(isinstance(event, PartEnd) for event in events)
 
 
-def test_rejects_bare_line_feeds() -> None:
+def test_rejects_bare_line_feed_after_initial_delimiter() -> None:
     parser = MultipartParser(b"boundary")
     with pytest.raises(ValueError, match="Invalid line break after delimiter"):
         parser.feed(b"--boundary\n")
-
-    parser = MultipartParser(b"boundary")
-    parser.feed(b"--boundary\r\n")
-    with pytest.raises(ValueError, match="Invalid line break in header"):
-        parser.feed(b"Content-Disposition: form-data; name=field\n")
 
     parser = MultipartParser(b"boundary")
     parser.feed(b"--boundary\r\nContent-Disposition: form-data; name=field\r\n\r\nvalue\r\n")
@@ -378,22 +373,55 @@ def test_rejects_bare_line_feeds() -> None:
     assert parser.state == MultipartState.DISCARD
 
 
-def test_rejects_malformed_headers() -> None:
-    malformed = [
-        (b"Header without colon\r\n", "Malformed header"),
-        (b": value\r\n", "Missing header name"),
-        (
-            b"Content-Disposition: form-data; name=a\rX-Smuggle: b\r\n",
-            "Invalid line break in header",
-        ),
-        (b"X: y\nZ: w\r\n", "Invalid line break in header"),
+@pytest.mark.parametrize("line_break", [b"\r", b"\n"])
+def test_preserves_bare_line_breaks_inside_header_values(line_break: bytes) -> None:
+    parser = MultipartParser(b"boundary")
+    events = parser.feed(
+        b"--boundary\r\nContent-Disposition: form-data; name=field"
+        + line_break
+        + b"X: value\r\n\r\ndata\r\n--boundary--"
+    )
+
+    begin = events[0]
+    assert isinstance(begin, PartBegin)
+    assert begin.headers == [
+        (b"Content-Disposition", b"form-data; name=field" + line_break + b"X: value")
     ]
 
-    for header, message in malformed:
-        parser = MultipartParser(b"boundary")
-        parser.feed(b"--boundary\r\n")
-        with pytest.raises(ValueError, match=message):
-            parser.feed(header)
+
+def test_ignores_header_lines_without_colons() -> None:
+    parser = MultipartParser(b"boundary")
+    events = parser.feed(
+        b"--boundary\r\n"
+        b"Malformed header without a colon\r\n"
+        b"Content-Disposition: form-data; name=field\r\n"
+        b"\r\nvalue\r\n--boundary--"
+    )
+
+    begin = events[0]
+    assert isinstance(begin, PartBegin)
+    assert begin.headers == [(b"Content-Disposition", b"form-data; name=field")]
+
+
+def test_preserves_empty_and_noncanonical_header_names() -> None:
+    parser = MultipartParser(b"boundary")
+    events = parser.feed(
+        b"--boundary\r\n"
+        b": empty\r\n"
+        b" Content-Disposition: leading-space\r\n"
+        b"Content-Disposition\t: trailing-tab\r\n"
+        b"Content-Disposition   : trailing-spaces\r\n"
+        b"\r\ndata\r\n--boundary--"
+    )
+
+    begin = events[0]
+    assert isinstance(begin, PartBegin)
+    assert begin.headers == [
+        (b"", b"empty"),
+        (b" Content-Disposition", b"leading-space"),
+        (b"Content-Disposition\t", b"trailing-tab"),
+        (b"Content-Disposition", b"trailing-spaces"),
+    ]
 
 
 def test_preserves_raw_header_bytes_and_order() -> None:
