@@ -1,0 +1,20 @@
+[package]
+name = "django-fast-multipart-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+memchr = "2.8.3"
+pyo3 = "0.29.2"
+
+[[bin]]
+name = "multipart_parser"
+path = "fuzz_targets/multipart_parser.rs"
+test = false
+doc = false
+bench = false

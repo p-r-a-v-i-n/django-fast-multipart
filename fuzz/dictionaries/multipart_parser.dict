@@ -1,0 +1,7 @@
+"--fuzz-boundary"
+"--fuzz-boundary--"
+"\x0D\x0A"
+"\x0D\x0A\x0D\x0A"
+"Content-Disposition: form-data; name=\"field\""
+"Content-Disposition: form-data; name=\"file\"; filename=\"file.bin\""
+"Content-Type: application/octet-stream"

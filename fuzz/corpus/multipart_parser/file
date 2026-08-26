@@ -1,0 +1,6 @@
+B--fuzz-boundary
+Content-Disposition: form-data; name="file"; filename="file.bin"
+Content-Type: application/octet-stream
+
+binary--fuzz-boundary-like-data
+--fuzz-boundary--

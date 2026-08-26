@@ -113,6 +113,16 @@ cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets --all-featur
 uv build
 ```
 
+### Native parser fuzzing
+
+The native parser has a libFuzzer target that compares contiguous and
+incremental parsing. It requires nightly Rust and `cargo-fuzz`:
+
+```console
+cargo +nightly fuzz run --fuzz-dir fuzz multipart_parser -- \
+    -dict=fuzz/dictionaries/multipart_parser.dict
+```
+
 ### Testing against Django main
 
 CI runs an advisory compatibility suite against Django's main branch. To run
