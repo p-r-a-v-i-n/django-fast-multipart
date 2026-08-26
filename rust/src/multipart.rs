@@ -223,6 +223,10 @@ impl MultipartParser {
         if let Some(index) = next_boundary
             .filter(|boundary| line_end.is_none_or(|line_terminator| *boundary < line_terminator))
         {
+            if index > self.max_header_size {
+                return Err(PyRuntimeError::new_err("Header line exceeds maximum size."));
+            }
+            self.check_total_header_size(index)?;
             self.current_headers.clear();
             self.current_total_header_size = 0;
             return self.handle_raw_boundary(events, index);
