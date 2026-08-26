@@ -5,9 +5,9 @@ multipart upload parser interface. It uses the
 `HttpRequest.multipart_parser_class` extension point introduced in Django 6.1
 and integrates with Django's existing upload-handler contract.
 
-The project is currently pre-alpha. Its behavior is tested against Django's
-`MultiPartParser`, but known compatibility differences remain and should be
-reviewed before production use.
+The project is currently beta. Its behavior is tested against Django's
+`MultiPartParser`, but broader custom upload-handler compatibility still needs
+production feedback.
 
 ## Compatibility
 
@@ -38,10 +38,7 @@ The following behavior is covered:
 Known limitations:
 
 - custom upload-handler edge cases beyond those listed above are not yet fully
-  covered;
-
-Known differences are represented by strict expected failures in the test
-suite, so newly achieved compatibility cannot pass unnoticed.
+  covered.
 
 ## Usage
 
@@ -110,6 +107,10 @@ The source distribution remains available for other platforms, but installing
 it requires a Rust toolchain and a compatible native build environment.
 
 ## Development
+
+See the
+[`RELEASING.md`](https://github.com/p-r-a-v-i-n/django-fast-multipart/blob/main/RELEASING.md)
+guide for the release process.
 
 The locked development environment uses the released Django 6.1 series:
 
