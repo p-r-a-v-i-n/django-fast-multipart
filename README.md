@@ -128,8 +128,10 @@ ASAN_OPTIONS=detect_leaks=0 \
 
 Timing and peak-memory benchmarks compare Django's parser with the native
 implementation. See [`benchmarks/README.md`](benchmarks/README.md) for the
-cases, a dated reference run, commands, and interpretation guidance. The
-benchmark workflow is manual and does not enforce performance thresholds.
+cases, commands, exploratory results, host limitations, and profiling
+observations. **The reference results are parser-level measurements, not
+end-to-end application performance claims.** The benchmark workflow is manual
+and does not enforce performance thresholds.
 
 ### Testing against Django main
 
