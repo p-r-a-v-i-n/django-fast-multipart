@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from contextlib import suppress
 from dataclasses import dataclass, field
 
@@ -41,6 +43,42 @@ MAX_HEADER_LINE_SIZE = MAX_TOTAL_HEADER_SIZE
 
 
 @dataclass
+class _Base64Decoder:
+    buffer: bytearray = field(default_factory=bytearray)
+    padding_complete: bool = False
+
+    def feed(self, data: bytes) -> bytes | None:
+        stripped = b"".join(data.split())
+        if not stripped:
+            return b"" if not self.buffer else None
+        if self.padding_complete:
+            raise binascii.Error("Excess data after padding")
+
+        self.buffer.extend(stripped)
+        complete_length = len(self.buffer) // 4 * 4
+        if complete_length == 0:
+            return None
+
+        candidate = bytes(self.buffer[:complete_length])
+        padding_index = candidate.find(b"=")
+        if padding_index >= 0:
+            padding_end = (padding_index // 4 + 1) * 4
+            if padding_end != len(self.buffer):
+                raise binascii.Error("Excess data after padding")
+            candidate = bytes(self.buffer)
+            self.buffer.clear()
+            self.padding_complete = True
+        else:
+            del self.buffer[:complete_length]
+
+        return base64.b64decode(candidate, validate=True)
+
+    def finish(self) -> None:
+        if self.buffer:
+            base64.b64decode(bytes(self.buffer), validate=True)
+
+
+@dataclass
 class _Part:
     field_name: str | None = None
     file_name: str | None = None
@@ -51,6 +89,8 @@ class _Part:
     is_file: bool = False
     ignored: bool = False
     started: bool = False
+    base64_encoded: bool = False
+    base64_decoder: _Base64Decoder | None = None
     data: bytearray = field(default_factory=bytearray)
     counters: list[int] = field(default_factory=list)
 
@@ -230,8 +270,7 @@ class RustMultiPartParser(MultiPartParser):
                 pass
 
         transfer_encoding = headers.get("content-transfer-encoding")
-        if transfer_encoding is not None and transfer_encoding[0].strip() == "base64":
-            raise MultiPartParserError("Content-Transfer-Encoding: base64 is not supported.")
+        base64_encoded = transfer_encoding is not None and transfer_encoding[0].strip() == "base64"
 
         part = _Part(
             field_name=field_name,
@@ -243,6 +282,8 @@ class RustMultiPartParser(MultiPartParser):
             is_file=is_file,
             ignored=ignored,
             started=is_file and not ignored,
+            base64_encoded=base64_encoded,
+            base64_decoder=_Base64Decoder() if is_file and base64_encoded else None,
             counters=[0] * len(self._upload_handlers),
         )
         return part
@@ -293,6 +334,14 @@ class RustMultiPartParser(MultiPartParser):
             return
 
         chunk: bytes | None = data
+        if part.base64_decoder is not None:
+            try:
+                chunk = part.base64_decoder.feed(data)
+            except binascii.Error as exc:
+                raise MultiPartParserError("Could not decode base64 data.") from exc
+            if chunk is None:
+                return
+
         try:
             for index, handler in enumerate(self._upload_handlers):
                 if chunk is None:
@@ -310,14 +359,26 @@ class RustMultiPartParser(MultiPartParser):
         if not part.is_file:
             self._check_field_memory_size(part)
             self._field_bytes += len(part.data) + len(part.field_name or "") + 2
+            data = bytes(part.data)
+            if part.base64_encoded:
+                try:
+                    data = base64.b64decode(data, validate=True)
+                except binascii.Error:
+                    pass
             self._post.appendlist(
                 part.field_name,
-                force_str(bytes(part.data), self._encoding, errors="replace"),
+                force_str(data, self._encoding, errors="replace"),
             )
             return
 
         if not part.field_name:
             return
+
+        if part.base64_decoder is not None:
+            try:
+                part.base64_decoder.finish()
+            except binascii.Error as exc:
+                raise MultiPartParserError("Could not decode base64 data.") from exc
 
         for index, handler in enumerate(self._upload_handlers):
             uploaded_file = handler.file_complete(part.counters[index])
