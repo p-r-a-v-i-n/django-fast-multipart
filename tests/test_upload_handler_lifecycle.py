@@ -346,3 +346,35 @@ def test_rust_parser_error_cleans_up_active_temporary_upload(interrupt_error):
     finally:
         if hasattr(handler, "file") and not handler.file.closed:
             handler.file.close()
+
+
+def test_rust_invalid_base64_cleans_up_active_temporary_upload():
+    handler = RecordingTemporaryFileUploadHandler()
+    headers, data = file_part("file", "invalid.bin", b"%%%!=")
+    headers.append((b"Content-Transfer-Encoding", b"base64"))
+    body = make_body([(headers, data)])
+
+    try:
+        with pytest.raises(
+            MultiPartParserError,
+            match="^Could not decode base64 data[.]$",
+        ):
+            RustMultiPartParser(
+                {
+                    "CONTENT_LENGTH": str(len(body)),
+                    "CONTENT_TYPE": (f"multipart/form-data; boundary={BOUNDARY.decode()}"),
+                },
+                ChunkedInput(body),
+                [handler],
+                "utf-8",
+            ).parse()
+
+        assert handler.temporary_path is not None
+        assert handler.file.closed
+        assert not os.path.exists(handler.temporary_path)
+        assert call_names(handler).count("upload_interrupted") == 1
+        assert "file_complete" not in call_names(handler)
+        assert "upload_complete" not in call_names(handler)
+    finally:
+        if hasattr(handler, "file") and not handler.file.closed:
+            handler.file.close()

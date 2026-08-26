@@ -23,6 +23,7 @@ TOO_MANY_FIELDS_MESSAGE = (
 TOO_MANY_FILES_MESSAGE = "The number of files exceeded settings.DATA_UPLOAD_MAX_NUMBER_FILES."
 TOO_MUCH_DATA_MESSAGE = "Request body exceeded settings.DATA_UPLOAD_MAX_MEMORY_SIZE."
 HEADER_TOO_LARGE_MESSAGE = "Request max total header size exceeded."
+INVALID_BASE64_MESSAGE = "Could not decode base64 data."
 
 PARSERS = [
     pytest.param(MultiPartParser, id="django"),
@@ -122,6 +123,59 @@ def test_field_memory_limit_matches_django(parser_class):
         with parsed_with(parser_class, body) as (post, files):
             assert post.get("name") == "value"
             assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_base64_field_memory_limit_uses_encoded_size(parser_class):
+    body = make_body(
+        [
+            field_part(
+                "name",
+                b"dmFsdWU=",
+                extra_headers=(b"Content-Transfer-Encoding: base64",),
+            )
+        ]
+    )
+
+    with override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=13):
+        assert_parse_error(
+            parser_class,
+            body,
+            RequestDataTooBig,
+            TOO_MUCH_DATA_MESSAGE,
+        )
+    with override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=14):
+        with parsed_with(parser_class, body) as (post, files):
+            assert post.get("name") == "value"
+            assert files == {}
+
+
+@pytest.mark.parametrize(
+    "encoded_data",
+    [
+        pytest.param(b"%%%!=", id="invalid-alphabet"),
+        pytest.param(b"dmFsdWU", id="missing-padding"),
+        pytest.param(b"dmFsdWU=dHJhaWxpbmc=", id="data-after-padding"),
+    ],
+)
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_invalid_base64_file_matches_django(parser_class, encoded_data):
+    body = make_body(
+        [
+            file_part(
+                "file",
+                "data.bin",
+                encoded_data,
+                extra_headers=(b"Content-Transfer-Encoding: base64",),
+            )
+        ]
+    )
+    handler = TemporaryFileUploadHandler()
+
+    with pytest.raises(MultiPartParserError) as caught:
+        with parsed_with(parser_class, body, handlers=(handler,)):
+            pass
+    assert str(caught.value) == INVALID_BASE64_MESSAGE
 
 
 @pytest.mark.parametrize("parser_class", PARSERS)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from io import BytesIO
 
 import pytest
@@ -186,6 +187,84 @@ def test_temporary_file_upload_matches_django(chunk_size):
             (MemoryFileUploadHandler, TemporaryFileUploadHandler),
             TemporaryUploadedFile,
         )
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+@pytest.mark.parametrize(
+    ("transfer_encoding", "encoded_value"),
+    [
+        pytest.param(b"base64", b"dmFsdWU=", id="valid"),
+        pytest.param(b"BASE64", b"dmFsdWU=", id="case-insensitive-header"),
+        pytest.param(b"base64", b"dmFs\r\n dWU=", id="whitespace-is-invalid"),
+        pytest.param(b"base64", b"dmFsdWU", id="missing-padding"),
+        pytest.param(b"base64", b"%%%!=", id="invalid-alphabet"),
+    ],
+)
+def test_base64_field_matches_django(transfer_encoding, encoded_value, chunk_size):
+    body = make_body(
+        [
+            (
+                [
+                    (b"Content-Disposition", b'form-data; name="value"'),
+                    (b"Content-Transfer-Encoding", transfer_encoding),
+                ],
+                encoded_value,
+            )
+        ]
+    )
+
+    assert_matches_django(body, chunk_size)
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 17, 64 * 1024])
+def test_base64_file_with_whitespace_matches_django(chunk_size):
+    file_data = bytes(range(256)) * 8
+    encoded = base64.b64encode(file_data)
+    encoded_with_whitespace = b" \r\n\t".join(
+        encoded[index : index + 13] for index in range(0, len(encoded), 13)
+    )
+    body = make_body(
+        [
+            (
+                [
+                    (b"Content-Disposition", b'form-data; name="file"; filename="data.bin"'),
+                    (b"Content-Type", b"application/octet-stream"),
+                    (b"Content-Transfer-Encoding", b"BASE64"),
+                ],
+                encoded_with_whitespace,
+            )
+        ]
+    )
+
+    assert_matches_django(
+        body,
+        chunk_size,
+        (MemoryFileUploadHandler, TemporaryFileUploadHandler),
+        InMemoryUploadedFile,
+    )
+
+
+@pytest.mark.parametrize("chunk_size", [1, 64 * 1024])
+def test_empty_base64_file_matches_django(chunk_size):
+    body = make_body(
+        [
+            (
+                [
+                    (b"Content-Disposition", b'form-data; name="file"; filename="empty.bin"'),
+                    (b"Content-Type", b"application/octet-stream"),
+                    (b"Content-Transfer-Encoding", b"base64"),
+                ],
+                b"",
+            )
+        ]
+    )
+
+    assert_matches_django(
+        body,
+        chunk_size,
+        (MemoryFileUploadHandler, TemporaryFileUploadHandler),
+        InMemoryUploadedFile,
+    )
 
 
 def test_every_two_chunk_split_matches_django():
