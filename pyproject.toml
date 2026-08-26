@@ -27,6 +27,7 @@ Issues = "https://github.com/p-r-a-v-i-n/django-fast-multipart/issues"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.0",
     "maturin>=1.7,<2",
     "pytest>=8.4",
     "ruff>=0.12",

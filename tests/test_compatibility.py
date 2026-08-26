@@ -394,6 +394,20 @@ def test_boundary_prefix_inside_file_matches_django(file_data, chunk_size):
     )
 
 
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+def test_boundary_token_immediately_after_headers_matches_django(chunk_size):
+    body = make_body(
+        [
+            (
+                [(b"Content-Disposition", b'form-data; name="value"')],
+                b"--" + BOUNDARY,
+            )
+        ]
+    )
+
+    assert_matches_django(body, chunk_size)
+
+
 def test_request_multipart_parser_class_integration():
     body = make_body(
         [

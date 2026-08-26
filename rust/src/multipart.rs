@@ -53,6 +53,7 @@ pub struct MultipartParser {
     size: usize,
     current_headers: Vec<(Vec<u8>, Vec<u8>)>,
     current_total_header_size: usize,
+    pending_headers: bool,
     eof_received: bool,
 }
 
@@ -87,6 +88,7 @@ impl MultipartParser {
             size: 0,
             current_headers: Vec::new(),
             current_total_header_size: 0,
+            pending_headers: false,
             eof_received: false,
         })
     }
@@ -129,6 +131,16 @@ impl MultipartParser {
             return Ok(Vec::new());
         }
         self.eof_received = true;
+        let mut events = Vec::new();
+
+        if self.pending_headers {
+            events.push(MultipartEvent::Begin {
+                headers: std::mem::take(&mut self.current_headers),
+            });
+            self.current_total_header_size = 0;
+            self.pending_headers = false;
+        }
+
         self.check_eof_header_size()?;
         self.current_headers.clear();
 
@@ -136,7 +148,6 @@ impl MultipartParser {
             if let Some(index) = self.dash_boundary_finder.find(&self.buffer) {
                 let after_boundary = index + self.dash_boundary.len();
                 if delimiter_suffix(&self.buffer, after_boundary) == DelimiterSuffix::Incomplete {
-                    let mut events = Vec::new();
                     self.emit_data(&mut events, body_data_end(&self.buffer, index));
                     events.push(MultipartEvent::End);
                     // Django creates a following RAW segment only when bytes
@@ -155,9 +166,9 @@ impl MultipartParser {
 
         let data = std::mem::take(&mut self.buffer);
         if self.state == MultipartState::Body && !data.is_empty() {
-            return Ok(vec![MultipartEvent::Data { data }]);
+            events.push(MultipartEvent::Data { data });
         }
-        Ok(Vec::new())
+        Ok(events)
     }
 
     pub fn finish(&self) -> PyResult<()> {
@@ -221,10 +232,7 @@ impl MultipartParser {
             if index == 0 {
                 self.check_total_header_size(CRLF.len())?;
                 self.buffer.drain(..CRLF.len());
-                events.push(MultipartEvent::Begin {
-                    headers: std::mem::take(&mut self.current_headers),
-                });
-                self.current_total_header_size = 0;
+                self.pending_headers = true;
                 self.state = MultipartState::Body;
                 return Ok(true);
             }
@@ -326,6 +334,26 @@ impl MultipartParser {
     }
 
     fn handle_body(&mut self, events: &mut Vec<MultipartEvent>) -> PyResult<bool> {
+        if self.pending_headers {
+            if self.buffer.len() < self.dash_boundary.len()
+                && self.dash_boundary.starts_with(&self.buffer)
+            {
+                return Ok(false);
+            }
+            if self.buffer.starts_with(&self.dash_boundary) {
+                self.current_headers.clear();
+                self.current_total_header_size = 0;
+                self.pending_headers = false;
+                self.state = MultipartState::Discard;
+                return self.handle_raw_boundary(events, 0);
+            }
+            events.push(MultipartEvent::Begin {
+                headers: std::mem::take(&mut self.current_headers),
+            });
+            self.current_total_header_size = 0;
+            self.pending_headers = false;
+        }
+
         if let Some(index) = self.dash_boundary_finder.find(&self.buffer) {
             let after_boundary = index + self.dash_boundary.len();
             let data_end = body_data_end(&self.buffer, index);
