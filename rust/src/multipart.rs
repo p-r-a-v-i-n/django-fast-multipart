@@ -269,12 +269,18 @@ impl MultipartParser {
             self.buffer.drain(..index + CRLF.len());
             return Ok(true);
         }
-        // Tolerate one buffered `\r` so a line of exactly `max_header_size` bytes survives a CRLF split across chunks.
-        let pending = self.buffer.len() - usize::from(self.buffer.ends_with(b"\r"));
+        // Do not charge an ambiguous trailing CR or partial boundary token to
+        // the header until the next chunk disambiguates it.
+        let retained = if self.buffer.ends_with(b"\r") {
+            1
+        } else {
+            partial_suffix_length(&self.buffer, &self.dash_boundary)
+        };
+        let pending = self.buffer.len() - retained;
         if pending > self.max_header_size {
             return Err(PyRuntimeError::new_err("Header line exceeds maximum size."));
         }
-        self.check_total_header_size(self.buffer.len())?;
+        self.check_total_header_size(pending)?;
         Ok(false)
     }
 
@@ -478,6 +484,14 @@ fn body_data_end(buffer: &[u8], boundary_start: usize) -> usize {
         end -= 1;
     }
     end
+}
+
+fn partial_suffix_length(buffer: &[u8], token: &[u8]) -> usize {
+    let maximum = buffer.len().min(token.len().saturating_sub(1));
+    (1..=maximum)
+        .rev()
+        .find(|length| token.starts_with(&buffer[buffer.len() - length..]))
+        .unwrap_or(0)
 }
 
 fn delimiter_suffix(buffer: &[u8], after_boundary: usize) -> DelimiterSuffix {
