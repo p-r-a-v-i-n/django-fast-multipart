@@ -10,9 +10,10 @@ from django_fast_multipart._core import (
     PartBegin,
     PartData,
     PartEnd,
+    RawPart,
 )
 
-Event = PartBegin | PartData | PartEnd
+Event = PartBegin | PartData | PartEnd | RawPart
 
 
 def feed(parser: MultipartParser, data: bytes, sizes: Iterable[int]) -> list[Event]:
@@ -35,7 +36,7 @@ def collect_parts(events: list[Event]) -> list[tuple[list[tuple[bytes, bytes]], 
             headers, data = event.headers, b""
         elif isinstance(event, PartData):
             data += event.data
-        else:
+        elif isinstance(event, PartEnd):
             parts.append((headers, data))
     return parts
 
@@ -130,6 +131,13 @@ def test_event_reprs(parser: MultipartParser) -> None:
     assert repr(begin).startswith("PartBegin(headers=[")
     assert repr(data) == "PartData(data=b'data')"
     assert repr(end) == "PartEnd()"
+
+
+def test_raw_part_event_repr() -> None:
+    parser = MultipartParser(b"boundary")
+    events = parser.feed(b"prefix--boundaryX ignored\r\n--boundary--")
+
+    assert [repr(event) for event in events] == ["RawPart()"]
 
 
 def test_preserves_terminal_crlf_in_body(parser: MultipartParser) -> None:
@@ -360,10 +368,12 @@ def test_reports_incomplete_boundaries_by_state() -> None:
     assert not any(isinstance(event, PartEnd) for event in events)
 
 
-def test_rejects_bare_line_feed_after_initial_delimiter() -> None:
+def test_discards_bare_line_feed_after_initial_delimiter() -> None:
     parser = MultipartParser(b"boundary")
-    with pytest.raises(ValueError, match="Invalid line break after delimiter"):
-        parser.feed(b"--boundary\n")
+    assert parser.feed(b"--boundary\n") == []
+    assert parser.state == MultipartState.DISCARD
+    with pytest.raises(ValueError, match="closing boundary not received"):
+        parser.finish()
 
     parser = MultipartParser(b"boundary")
     parser.feed(b"--boundary\r\nContent-Disposition: form-data; name=field\r\n\r\nvalue\r\n")
@@ -371,6 +381,61 @@ def test_rejects_bare_line_feed_after_initial_delimiter() -> None:
     assert isinstance(events[-1], PartEnd)
     assert collect_parts(events) == [([], b"value")]
     assert parser.state == MultipartState.DISCARD
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+def test_accepts_initial_boundary_without_a_preceding_line_break(chunk_size: int) -> None:
+    body = (
+        b"inline preamble--boundary\r\n"
+        b"Content-Disposition: form-data; name=field\r\n\r\n"
+        b"value\r\n--boundary--\r\n"
+    )
+    parser = MultipartParser(b"boundary")
+
+    events = feed(parser, body, [chunk_size] * (len(body) // chunk_size))
+
+    assert collect_parts(events) == [
+        ([(b"Content-Disposition", b"form-data; name=field")], b"value")
+    ]
+    assert parser.state == MultipartState.END
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+def test_resumes_parsing_after_a_closing_boundary(chunk_size: int) -> None:
+    body = (
+        b"--boundary\r\nContent-Disposition: form-data; name=first\r\n\r\none\r\n"
+        b"--boundary--\r\n"
+        b"--boundary\r\nContent-Disposition: form-data; name=second\r\n\r\ntwo\r\n"
+        b"--boundary--\r\n"
+    )
+    parser = MultipartParser(b"boundary")
+
+    events = feed(parser, body, [chunk_size] * (len(body) // chunk_size))
+
+    assert sum(isinstance(event, RawPart) for event in events) == 1
+    assert collect_parts(events) == [
+        ([(b"Content-Disposition", b"form-data; name=first")], b"one"),
+        ([(b"Content-Disposition", b"form-data; name=second")], b"two"),
+    ]
+    assert parser.state == MultipartState.END
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+def test_reports_a_headerless_inter_boundary_segment(chunk_size: int) -> None:
+    body = (
+        b"--boundary\r\nraw segment without headers\r\n"
+        b"--boundary\r\nContent-Disposition: form-data; name=field\r\n\r\nvalue\r\n"
+        b"--boundary--\r\n"
+    )
+    parser = MultipartParser(b"boundary")
+
+    events = feed(parser, body, [chunk_size] * (len(body) // chunk_size))
+
+    assert sum(isinstance(event, RawPart) for event in events) == 1
+    assert collect_parts(events) == [
+        ([(b"Content-Disposition", b"form-data; name=field")], b"value")
+    ]
+    assert parser.state == MultipartState.END
 
 
 @pytest.mark.parametrize("line_break", [b"\r", b"\n"])

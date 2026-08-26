@@ -588,6 +588,86 @@ def test_terminal_raw_consumes_field_count_allowance(parser_class):
         )
 
 
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_raw_segment_after_false_preamble_boundary_counts_as_field(parser_class):
+    body = (
+        b"preamble--"
+        + DEFAULT_BOUNDARY
+        + b"X ignored\r\nraw segment\r\n"
+        + make_body([field_part("name", b"value")])
+    )
+
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=1):
+        assert_parse_error(
+            parser_class,
+            body,
+            TooManyFieldsSent,
+            TOO_MANY_FIELDS_MESSAGE,
+        )
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=2):
+        with parsed_with(parser_class, body) as (post, files):
+            assert post.get("name") == "value"
+            assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_headerless_inter_boundary_segment_counts_as_field(parser_class):
+    body = (
+        b"--"
+        + DEFAULT_BOUNDARY
+        + b"\r\nraw segment without headers\r\n"
+        + make_body([field_part("name", b"value")])
+    )
+
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=1):
+        assert_parse_error(
+            parser_class,
+            body,
+            TooManyFieldsSent,
+            TOO_MANY_FIELDS_MESSAGE,
+        )
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=2):
+        with parsed_with(parser_class, body) as (post, files):
+            assert post.get("name") == "value"
+            assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_boundary_token_in_epilogue_counts_as_field(parser_class):
+    body = make_body([field_part("name", b"value")])
+    body += b"epilogue--" + DEFAULT_BOUNDARY + b"X trailing"
+
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=1):
+        assert_parse_error(
+            parser_class,
+            body,
+            TooManyFieldsSent,
+            TOO_MANY_FIELDS_MESSAGE,
+        )
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=2):
+        with parsed_with(parser_class, body) as (post, files):
+            assert post.get("name") == "value"
+            assert files == {}
+
+
+@pytest.mark.parametrize("parser_class", PARSERS)
+def test_part_after_closing_boundary_counts_intervening_raw_field(parser_class):
+    body = make_body([field_part("first", b"one")])
+    body += make_body([field_part("second", b"two")])
+
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=2):
+        assert_parse_error(
+            parser_class,
+            body,
+            TooManyFieldsSent,
+            TOO_MANY_FIELDS_MESSAGE,
+        )
+    with override_settings(DATA_UPLOAD_MAX_NUMBER_FIELDS=3):
+        with parsed_with(parser_class, body) as (post, files):
+            assert list(post.items()) == [("first", "one"), ("second", "two")]
+            assert files == {}
+
+
 @pytest.mark.parametrize(
     "body",
     [
