@@ -570,6 +570,25 @@ def test_enforces_maximum_header_size_before_raw_boundary() -> None:
         parser.feed(b"--boundary\r\n" + b"x" * 17 + b"--boundary--")
 
 
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {"max_header_size": 64},
+        {"max_total_header_size": 61},
+    ],
+)
+def test_partial_raw_boundary_is_not_counted_as_header_data(limits: dict[str, int]) -> None:
+    parser = MultipartParser(b"boundary", **limits)
+    prefix = b"--boundary\r\n" + b"x" * 59
+
+    assert parser.feed(prefix + b"--boun") == []
+    events = parser.feed(b"dary--")
+
+    assert len(events) == 1
+    assert isinstance(events[0], RawPart)
+    assert parser.state == MultipartState.END
+
+
 def test_header_size_limit_allows_crlf_split_across_chunks() -> None:
     line = b"Content-Disposition: form-data; name=field"
     parser = MultipartParser(b"boundary", max_header_size=len(line))
