@@ -72,8 +72,9 @@ def test_parser_body(parser: MultipartParser) -> None:
     events = parser.feed(b"--boundary\r\nContent-Disposition: form-data; name=field\r\n\r\n")
 
     assert parser.state == MultipartState.BODY
-    assert len(events) == 1
-    begin = events[0]
+    assert events == []
+
+    begin = parser.feed(b"v")[0]
     assert isinstance(begin, PartBegin)
     assert begin.headers == [(b"Content-Disposition", b"form-data; name=field")]
 
@@ -267,11 +268,14 @@ def test_feed_eof_discards_data_after_invalid_boundary_token() -> None:
     assert parser.state == MultipartState.DISCARD
 
 
-def test_feed_eof_with_empty_truncated_body_emits_no_data() -> None:
+def test_feed_eof_begins_an_empty_truncated_body() -> None:
     parser = MultipartParser(b"boundary")
     parser.feed(b"--boundary\r\n\r\n")
 
-    assert parser.feed_eof() == []
+    events = parser.feed_eof()
+
+    assert len(events) == 1
+    assert isinstance(events[0], PartBegin)
     assert parser.state == MultipartState.BODY
 
 
@@ -352,7 +356,10 @@ def test_feed_eof_allows_complete_header_at_exact_total_limit() -> None:
     parser = MultipartParser(b"boundary", max_total_header_size=total_header_size)
     parser.feed(b"--boundary\r\n" + header_section)
 
-    assert parser.feed_eof() == []
+    events = parser.feed_eof()
+
+    assert len(events) == 1
+    assert isinstance(events[0], PartBegin)
 
 
 def test_reports_incomplete_boundaries_by_state() -> None:
@@ -435,6 +442,21 @@ def test_reports_a_headerless_inter_boundary_segment(chunk_size: int) -> None:
     assert collect_parts(events) == [
         ([(b"Content-Disposition", b"form-data; name=field")], b"value")
     ]
+    assert parser.state == MultipartState.END
+
+
+@pytest.mark.parametrize("chunk_size", [1, 3, 64 * 1024])
+def test_boundary_immediately_after_headers_makes_the_segment_raw(chunk_size: int) -> None:
+    body = (
+        b"--boundary\r\nContent-Disposition: form-data; name=field\r\n\r\n"
+        b"--boundary\r\n--boundary--\r\n"
+    )
+    parser = MultipartParser(b"boundary")
+
+    events = feed(parser, body, [chunk_size] * (len(body) // chunk_size))
+
+    assert sum(isinstance(event, RawPart) for event in events) == 2
+    assert collect_parts(events) == []
     assert parser.state == MultipartState.END
 
 

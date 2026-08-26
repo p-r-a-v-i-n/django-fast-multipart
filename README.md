@@ -14,6 +14,8 @@ reviewed before production use.
 The differential test suite sends identical request bodies through Django's
 parser and `RustMultiPartParser`, then compares the resulting `POST` and
 `FILES` values, exceptions, stream consumption, and upload-handler callbacks.
+A deterministic property-based suite also generates multipart structures,
+binary and boundary-like payloads, input chunk sizes, and Django upload limits.
 
 The following behavior is covered:
 

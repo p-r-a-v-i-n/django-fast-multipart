@@ -144,14 +144,7 @@ class RustMultiPartParser(MultiPartParser):
                             raise MultiPartParserError(
                                 "Received a new multipart part before the previous part ended."
                             )
-                        current_part = self._begin_part(event.headers)
-                        if current_part.started:
-                            self._unfinished_upload = True
-                            try:
-                                self._start_file(current_part)
-                            except SkipFile:
-                                self._close_files()
-                                current_part.ignored = True
+                        current_part = self._open_part(event.headers)
                     elif isinstance(event, PartData):
                         if current_part is None:
                             raise MultiPartParserError(
@@ -176,7 +169,14 @@ class RustMultiPartParser(MultiPartParser):
                 state_before_eof == MultipartState.BODY and parser.state == MultipartState.END
             )
             for event in eof_events:
-                if isinstance(event, PartData):
+                if isinstance(event, PartBegin):
+                    terminal_raw = False
+                    if current_part is not None:
+                        raise MultiPartParserError(
+                            "Received a new multipart part before the previous part ended."
+                        )
+                    current_part = self._open_part(event.headers)
+                elif isinstance(event, PartData):
                     if current_part is None:
                         raise MultiPartParserError("Received multipart data before part headers.")
                     self._receive_part_data(current_part, event.data)
@@ -229,6 +229,17 @@ class RustMultiPartParser(MultiPartParser):
         any(handler.upload_complete() for handler in self._upload_handlers)
         self._post._mutable = False
         return self._post, self._files
+
+    def _open_part(self, raw_headers: list[tuple[bytes, bytes]]) -> _Part:
+        part = self._begin_part(raw_headers)
+        if part.started:
+            self._unfinished_upload = True
+            try:
+                self._start_file(part)
+            except SkipFile:
+                self._close_files()
+                part.ignored = True
+        return part
 
     def _begin_part(self, raw_headers: list[tuple[bytes, bytes]]) -> _Part:
         headers = self._parse_headers(raw_headers)
