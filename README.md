@@ -124,6 +124,13 @@ ASAN_OPTIONS=detect_leaks=0 \
         -dict=fuzz/dictionaries/multipart_parser.dict
 ```
 
+### Parser benchmarks
+
+Timing and peak-memory benchmarks compare Django's parser with the native
+implementation. See [`benchmarks/README.md`](benchmarks/README.md) for the
+cases, commands, and interpretation guidance. The benchmark workflow is
+manual and does not enforce performance thresholds.
+
 ### Testing against Django main
 
 CI runs an advisory compatibility suite against Django's main branch. To run
