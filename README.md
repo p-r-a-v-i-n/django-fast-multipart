@@ -49,25 +49,20 @@ suite, so newly achieved compatibility cannot pass unnoticed.
 
 ### Middleware
 
-For application-wide use, select the parser in middleware:
+For application-wide use, add the included middleware:
 
 ```python
-from django_fast_multipart import RustMultiPartParser
-
-
-class FastMultipartMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        if request.content_type == "multipart/form-data":
-            request.multipart_parser_class = RustMultiPartParser
-        return self.get_response(request)
+MIDDLEWARE = [
+    "django_fast_multipart.middleware.FastMultipartMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    # Other middleware...
+]
 ```
 
-Add this middleware before `django.middleware.csrf.CsrfViewMiddleware` and any
-other middleware that accesses `request.POST` or `request.FILES`. Django uses
-the parser class that is configured when either collection is first read.
+Place it before any middleware that accesses `request.POST` or `request.FILES`.
+Django uses the parser class that is configured when either collection is
+first read. The middleware supports both synchronous and asynchronous request
+stacks.
 
 ### Per-request selection
 
