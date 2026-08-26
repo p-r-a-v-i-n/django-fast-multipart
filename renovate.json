@@ -54,6 +54,12 @@
       "groupName": "GitHub Actions"
     },
     {
+      "description": "Include the wheel-builder version with CI tooling updates",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["PyO3/maturin"],
+      "groupName": "GitHub Actions"
+    },
+    {
       "description": "Require approval for major updates",
       "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": true
@@ -69,6 +75,18 @@
       ],
       "depNameTemplate": "uv",
       "packageNameTemplate": "astral-sh/uv",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the maturin version used to build wheels",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "MATURIN_VERSION: \\\"v(?<currentValue>\\d+\\.\\d+\\.\\d+)\\\""
+      ],
+      "depNameTemplate": "maturin",
+      "packageNameTemplate": "PyO3/maturin",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver"
     }
