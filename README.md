@@ -43,7 +43,34 @@ suite, so newly achieved compatibility cannot pass unnoticed.
 
 ## Usage
 
-Set the parser class before Django accesses `request.POST` or `request.FILES`:
+`django-fast-multipart` requires Python 3.12 or later and Django 6.1.
+
+### Middleware
+
+For application-wide use, select the parser in middleware:
+
+```python
+from django_fast_multipart import RustMultiPartParser
+
+
+class FastMultipartMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.content_type == "multipart/form-data":
+            request.multipart_parser_class = RustMultiPartParser
+        return self.get_response(request)
+```
+
+Add this middleware before `django.middleware.csrf.CsrfViewMiddleware` and any
+other middleware that accesses `request.POST` or `request.FILES`. Django uses
+the parser class that is configured when either collection is first read.
+
+### Per-request selection
+
+The parser can be selected in a view when no earlier middleware has accessed
+the request data:
 
 ```python
 from django_fast_multipart import RustMultiPartParser
@@ -55,18 +82,17 @@ def upload(request):
     # Process the uploaded file.
 ```
 
-The parser can also be selected in middleware when it should apply to multiple
-views. The assignment must occur before another middleware or view reads the
-request body.
+Existing upload-handler configuration remains in effect. The parser uses
+Django's configured upload handlers and enforces its field-memory, field-count,
+and file-count settings.
 
 ## Native core
 
 The native parser is included in this repository and built as the private
 `django_fast_multipart._core` extension. It is derived from
-[`rust-multipart`](https://github.com/Kludex/rust-multipart) commit
-`2fc31ceeec0b980fcfe37b9ee2ed0fb3b2b7f437`. See
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for provenance and licensing
-details.
+[`rust-multipart`](https://github.com/Kludex/rust-multipart). See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the source revision and
+licensing details.
 
 Source distributions include the Rust sources and lockfile; installation does
 not fetch parser code from a Git repository.
