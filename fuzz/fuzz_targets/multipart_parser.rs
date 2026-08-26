@@ -24,15 +24,39 @@ enum Event {
 
 #[derive(Debug, PartialEq)]
 enum Terminal {
-    FeedError(String),
-    EofError(String),
-    Finished(Result<(), String>),
+    FeedError(ParserError),
+    EofError(ParserError),
+    Finished(Result<(), ParserError>),
+}
+
+#[derive(Debug, PartialEq)]
+enum ParserError {
+    HeaderLimit,
+    Other(String),
 }
 
 #[derive(Debug, PartialEq)]
 struct Outcome {
     events: Vec<Event>,
     terminal: Terminal,
+}
+
+fn normalize_error(error: impl ToString) -> ParserError {
+    let message = error.to_string();
+    // The Django adapter exposes each internal header-limit failure as the
+    // same MultiPartParserError, regardless of which threshold is seen first.
+    let is_header_limit = [
+        "Header line exceeds maximum size.",
+        "Part exceeds maximum header count.",
+        "Part exceeds maximum total header size.",
+    ]
+    .iter()
+    .any(|candidate| message.ends_with(candidate));
+    if is_header_limit {
+        ParserError::HeaderLimit
+    } else {
+        ParserError::Other(message)
+    }
 }
 
 fn append_events(output: &mut Vec<Event>, events: Vec<MultipartEvent>) {
@@ -72,7 +96,7 @@ fn parse(request: &[u8], chunk_size: usize, control: u8) -> Outcome {
             Err(error) => {
                 return Outcome {
                     events,
-                    terminal: Terminal::FeedError(error.to_string()),
+                    terminal: Terminal::FeedError(normalize_error(error)),
                 };
             }
         }
@@ -83,14 +107,14 @@ fn parse(request: &[u8], chunk_size: usize, control: u8) -> Outcome {
         Err(error) => {
             return Outcome {
                 events,
-                terminal: Terminal::EofError(error.to_string()),
+                terminal: Terminal::EofError(normalize_error(error)),
             };
         }
     }
 
     Outcome {
         events,
-        terminal: Terminal::Finished(parser.finish().map_err(|error| error.to_string())),
+        terminal: Terminal::Finished(parser.finish().map_err(normalize_error)),
     }
 }
 
