@@ -27,12 +27,12 @@ The following behavior is covered:
 - truncated fields and interrupted files at end of input;
 - raw boundary tokens embedded in part data;
 - Django boundary values through 201 bytes;
+- Django-compatible handling of malformed part-header lines;
 - Django's parser constructor and return-value contract.
 
 Known limitations:
 
 - `Content-Transfer-Encoding: base64` is not supported;
-- malformed header lines accepted by Django may be rejected;
 - custom upload-handler edge cases beyond those listed above are not yet fully
   covered;
 - preamble, epilogue, and post-closing-boundary behavior is not yet fully

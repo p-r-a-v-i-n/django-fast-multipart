@@ -229,32 +229,31 @@ impl MultipartParser {
             if index > self.max_header_size {
                 return Err(PyRuntimeError::new_err("Header line exceeds maximum size."));
             }
-            if self.current_headers.len() == self.max_header_count {
-                return Err(PyRuntimeError::new_err(
-                    "Part exceeds maximum header count.",
-                ));
-            }
             self.check_total_header_size(index + CRLF.len())?;
             let line = &self.buffer[..index];
-            if memchr::memchr2(b'\r', b'\n', line).is_some() {
-                return Err(PyValueError::new_err("Invalid line break in header"));
+            // Match Django's header classification: ignore lines without a
+            // colon and remove trailing spaces, but preserve other bytes in
+            // the header name for the adapter to decode and classify.
+            if let Some(separator) = memchr::memchr(b':', line) {
+                if self.current_headers.len() == self.max_header_count {
+                    return Err(PyRuntimeError::new_err(
+                        "Part exceeds maximum header count.",
+                    ));
+                }
+                let raw_name = &line[..separator];
+                let name_length = raw_name
+                    .iter()
+                    .rposition(|byte| *byte != b' ')
+                    .map_or(0, |index| index + 1);
+                let name = &raw_name[..name_length];
+                let value = line[separator + 1..].trim_ascii();
+                self.current_headers.push((name.to_vec(), value.to_vec()));
             }
-            let separator = memchr::memchr(b':', line)
-                .ok_or_else(|| PyValueError::new_err("Malformed header"))?;
-            let name = line[..separator].trim_ascii();
-            if name.is_empty() {
-                return Err(PyValueError::new_err("Missing header name"));
-            }
-            let value = line[separator + 1..].trim_ascii();
-            self.current_headers.push((name.to_vec(), value.to_vec()));
             self.current_total_header_size = self
                 .current_total_header_size
                 .saturating_add(index + CRLF.len());
             self.buffer.drain(..index + CRLF.len());
             return Ok(true);
-        }
-        if self.buffer.contains(&b'\n') {
-            return Err(PyValueError::new_err("Invalid line break in header"));
         }
         // Tolerate one buffered `\r` so a line of exactly `max_header_size` bytes survives a CRLF split across chunks.
         let pending = self.buffer.len() - usize::from(self.buffer.ends_with(b"\r"));

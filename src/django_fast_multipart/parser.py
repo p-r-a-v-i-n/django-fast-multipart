@@ -34,8 +34,9 @@ RUST_HEADER_LIMIT_ERRORS = {
     "Part exceeds maximum header count.",
     "Part exceeds maximum total header size.",
 }
-# These bounds match Django's boundary suffix and raw header accounting.
-MAX_HEADER_COUNT = (MAX_TOTAL_HEADER_SIZE - 2) // 4
+# The smallest retained header line is `:\r\n`, so this count can only be
+# reached when Django's aggregate raw-header limit is reached as well.
+MAX_HEADER_COUNT = (MAX_TOTAL_HEADER_SIZE - 2) // 3
 MAX_HEADER_LINE_SIZE = MAX_TOTAL_HEADER_SIZE
 
 
