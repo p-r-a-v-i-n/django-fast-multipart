@@ -24,6 +24,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # CPython retains process-global allocations until interpreter shutdown.
+  ASAN_OPTIONS: detect_leaks=0
   CARGO_FUZZ_VERSION: "0.13.2"
 
 jobs:

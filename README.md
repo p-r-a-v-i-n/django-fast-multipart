@@ -119,8 +119,9 @@ The native parser has a libFuzzer target that compares contiguous and
 incremental parsing. It requires nightly Rust and `cargo-fuzz`:
 
 ```console
-cargo +nightly fuzz run --fuzz-dir fuzz multipart_parser -- \
-    -dict=fuzz/dictionaries/multipart_parser.dict
+ASAN_OPTIONS=detect_leaks=0 \
+    cargo +nightly fuzz run --fuzz-dir fuzz multipart_parser -- \
+        -dict=fuzz/dictionaries/multipart_parser.dict
 ```
 
 ### Testing against Django main
