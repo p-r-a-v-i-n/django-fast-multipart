@@ -99,6 +99,16 @@ licensing details.
 Source distributions include the Rust sources and lockfile; installation does
 not fetch parser code from a Git repository.
 
+## Distribution support
+
+Distribution CI builds and installs CPython stable-ABI wheels for manylinux
+x86-64 and ARM64, macOS on Intel and Apple Silicon, and Windows x86-64. The
+stable ABI supports the project's CPython 3.12-or-later compatibility range
+without producing a wheel for each Python minor release.
+
+The source distribution remains available for other platforms, but installing
+it requires a Rust toolchain and a compatible native build environment.
+
 ## Development
 
 The locked development environment uses the released Django 6.1 series:
