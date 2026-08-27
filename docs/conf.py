@@ -16,11 +16,18 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 source_suffix = {".rst": "restructuredtext"}
 root_doc = "index"
 
-html_theme = "alabaster"
+html_theme = "furo"
 html_title = f"django-fast-multipart {release}"
 html_theme_options = {
-    "description": "Rust-backed multipart parsing for Django",
-    "github_button": True,
-    "github_repo": "django-fast-multipart",
-    "github_user": "p-r-a-v-i-n",
+    "source_repository": "https://github.com/p-r-a-v-i-n/django-fast-multipart/",
+    "source_branch": "main",
+    "source_directory": "docs/",
+    "light_css_variables": {
+        "color-brand-primary": "#0c4b33",
+        "color-brand-content": "#087f5b",
+    },
+    "dark_css_variables": {
+        "color-brand-primary": "#44b78b",
+        "color-brand-content": "#62d6a7",
+    },
 }

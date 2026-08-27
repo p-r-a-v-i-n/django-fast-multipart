@@ -24,7 +24,7 @@ Build these documentation pages locally:
 
 .. code-block:: console
 
-   uvx --from Sphinx==9.1.0 sphinx-build -n -W --keep-going -b html docs docs/_build/html
+   uvx --from Sphinx==9.1.0 --with furo==2025.12.19 sphinx-build -n -W --keep-going -b html docs docs/_build/html
 
 The generated site starts at ``docs/_build/html/index.html``.
 
