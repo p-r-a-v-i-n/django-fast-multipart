@@ -17,5 +17,7 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-The planned GitHub Actions `Release` workflow will build the wheels and source
-distribution and publish them to PyPI using trusted publishing.
+The GitHub Actions `Release` workflow verifies all four version declarations,
+builds and tests the five supported wheels, builds the source distribution,
+publishes the artifacts to TestPyPI and PyPI using trusted publishing, and then
+creates the GitHub release.
