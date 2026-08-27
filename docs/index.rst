@@ -42,15 +42,26 @@ Documentation
 
 .. toctree::
    :maxdepth: 2
+   :caption: Getting started
 
    installation
    quickstart
+
+.. toctree::
+   :maxdepth: 2
+   :caption: User guide
+
    configuration
    architecture
    compatibility
-   performance
    api
    troubleshooting
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Project
+
+   performance
    development
 
 Project links
