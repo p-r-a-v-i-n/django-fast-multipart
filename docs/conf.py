@@ -17,7 +17,9 @@ source_suffix = {".rst": "restructuredtext"}
 root_doc = "index"
 
 html_theme = "furo"
-html_title = f"django-fast-multipart {release}"
+html_title = project
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 html_theme_options = {
     "source_repository": "https://github.com/p-r-a-v-i-n/django-fast-multipart/",
     "source_branch": "main",
