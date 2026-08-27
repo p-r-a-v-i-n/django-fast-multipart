@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "django-fast-multipart"
-version = "0.1.0"
+version = "0.1.1"
 description = "Rust-backed multipart parser for Django"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,6 +15,10 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Framework :: Django",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Rust",
 ]
 dependencies = [
