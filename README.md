@@ -1,52 +1,29 @@
 # django-fast-multipart
 
-`django-fast-multipart` provides a Rust-backed implementation of Django's
-multipart upload parser interface. It uses the
-`HttpRequest.multipart_parser_class` extension point introduced in Django 6.1
-and integrates with Django's existing upload-handler contract.
+[![PyPI](https://img.shields.io/pypi/v/django-fast-multipart.svg)](https://pypi.org/project/django-fast-multipart/)
+[![Python](https://img.shields.io/pypi/pyversions/django-fast-multipart.svg)](https://pypi.org/project/django-fast-multipart/)
+[![Documentation Status](https://readthedocs.org/projects/django-fast-multipart/badge/?version=latest)](https://django-fast-multipart.readthedocs.io/en/latest/)
 
-The project is currently beta. Its behavior is tested against Django's
-`MultiPartParser`, but broader custom upload-handler compatibility still needs
-production feedback.
+`django-fast-multipart` is a Rust-backed multipart upload parser for Django.
+It uses Django's parser extension point while keeping the existing upload
+handlers, request limits, `request.POST`, and `request.FILES` interfaces.
 
-## Compatibility
+The project currently supports CPython 3.12 or later and Django 6.1.
 
-The differential test suite sends identical request bodies through Django's
-parser and `RustMultiPartParser`, then compares the resulting `POST` and
-`FILES` values, exceptions, stream consumption, and upload-handler callbacks.
-A deterministic property-based suite also generates multipart structures,
-binary and boundary-like payloads, input chunk sizes, and Django upload limits.
+## Installation
 
-The following behavior is covered:
+```console
+python -m pip install django-fast-multipart
+```
 
-- normal and repeated form fields;
-- incremental request reads, including one-byte chunks;
-- in-memory and temporary-file upload handlers;
-- `StopFutureHandlers`, `SkipFile`, and both `StopUpload` modes;
-- interrupted-upload signaling and temporary-file cleanup;
-- field-memory, field-count, and file-count limits;
-- Django's 1,024-byte aggregate part-header limit;
-- truncated fields and interrupted files at end of input;
-- raw boundary tokens embedded in part data;
-- Django boundary values through 201 bytes;
-- Django-compatible handling of malformed part-header lines;
-- base64 transfer encoding for form fields and file uploads;
-- preambles, epilogues, raw inter-boundary segments, and parts following a
-  closing-boundary marker;
-- Django's parser constructor and return-value contract.
+Prebuilt wheels are available for Linux x86-64 and ARM64, macOS Intel and
+Apple Silicon, and Windows x86-64. Other platforms can build from the source
+distribution with a Rust toolchain.
 
-Known limitations:
+## Quick start
 
-- custom upload-handler edge cases beyond those listed above are not yet fully
-  covered.
-
-## Usage
-
-`django-fast-multipart` requires Python 3.12 or later and Django 6.1.
-
-### Middleware
-
-For application-wide use, add the included middleware:
+For application-wide use, add the middleware before CSRF or anything else that
+reads `request.POST` or `request.FILES`:
 
 ```python
 MIDDLEWARE = [
@@ -56,15 +33,16 @@ MIDDLEWARE = [
 ]
 ```
 
-Place it before any middleware that accesses `request.POST` or `request.FILES`.
-Django uses the parser class that is configured when either collection is
-first read. The middleware supports both synchronous and asynchronous request
-stacks.
+Your views continue to use Django's normal request API:
 
-### Per-request selection
+```python
+def upload(request):
+    description = request.POST.get("description", "")
+    uploaded_file = request.FILES["file"]
+    # Process the uploaded file.
+```
 
-The parser can be selected in a view when no earlier middleware has accessed
-the request data:
+To select it only for one view:
 
 ```python
 from django_fast_multipart import RustMultiPartParser
@@ -76,38 +54,33 @@ def upload(request):
     # Process the uploaded file.
 ```
 
-Existing upload-handler configuration remains in effect. The parser uses
-Django's configured upload handlers and enforces its field-memory, field-count,
-and file-count settings.
+The parser must be selected before request data is read. Both synchronous WSGI
+and asynchronous ASGI request stacks are supported, and non-multipart requests
+remain unchanged.
 
-## Native core
+## Documentation
 
-The native parser is included in this repository and built as the private
-`django_fast_multipart._core` extension. It is derived from
-[`rust-multipart`](https://github.com/Kludex/rust-multipart). See
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the source revision and
-licensing details.
+Read the complete guide at
+[django-fast-multipart.readthedocs.io](https://django-fast-multipart.readthedocs.io/en/latest/).
+It covers installation, middleware ordering, per-view setup, upload handlers,
+compatibility, performance, troubleshooting, and development.
 
-Source distributions include the Rust sources and lockfile; installation does
-not fetch parser code from a Git repository.
+## Performance
 
-## Distribution support
+Reference microbenchmarks show the clearest reduction in parser overhead for
+field-heavy forms and in-memory uploads. Temporary-file uploads benefit less
+because file I/O and upload-handler work dominate. These results are
+parser-level measurements, not end-to-end application guarantees; see the
+[benchmark methodology](benchmarks/README.md) for details.
 
-Distribution CI builds and installs CPython stable-ABI wheels for manylinux
-x86-64 and ARM64, macOS on Intel and Apple Silicon, and Windows x86-64. The
-stable ABI supports the project's CPython 3.12-or-later compatibility range
-without producing a wheel for each Python minor release.
+## Project status
 
-The source distribution remains available for other platforms, but installing
-it requires a Rust toolchain and a compatible native build environment.
+The project is currently beta. Its behavior is extensively tested against
+Django's `MultiPartParser`, including built-in upload handlers, upload limits,
+WSGI and ASGI integration, and cleanup after exceptions. Production feedback
+for custom upload handlers is welcome.
 
 ## Development
-
-See the
-[`RELEASING.md`](https://github.com/p-r-a-v-i-n/django-fast-multipart/blob/main/RELEASING.md)
-guide for the release process.
-
-The locked development environment uses the released Django 6.1 series:
 
 ```console
 uv sync
@@ -119,31 +92,10 @@ cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets --all-featur
 uv build
 ```
 
-### Native parser fuzzing
+See the [development documentation](https://django-fast-multipart.readthedocs.io/en/latest/development.html)
+and [release guide](RELEASING.md) for more details.
 
-The native parser has a libFuzzer target that compares contiguous and
-incremental parsing. It requires nightly Rust and `cargo-fuzz`:
+## License
 
-```console
-ASAN_OPTIONS=detect_leaks=0 \
-    cargo +nightly fuzz run --fuzz-dir fuzz multipart_parser -- \
-        -dict=fuzz/dictionaries/multipart_parser.dict
-```
-
-### Parser benchmarks
-
-Timing and peak-memory benchmarks compare Django's parser with the native
-implementation. See [`benchmarks/README.md`](benchmarks/README.md) for the
-cases, commands, exploratory results, host limitations, and profiling
-observations. **The reference results are parser-level measurements, not
-end-to-end application performance claims.** The benchmark workflow is manual
-and does not enforce performance thresholds.
-
-### Testing against Django main
-
-CI runs an advisory compatibility suite against Django's main branch. To run
-the same suite with a local Django checkout:
-
-```console
-PYTHONPATH=/path/to/django uv run --no-sync pytest
-```
+The project is licensed under MIT. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+for the native parser's upstream attribution and licensing details.

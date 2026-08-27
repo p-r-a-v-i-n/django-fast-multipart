@@ -22,6 +22,7 @@ dependencies = [
 ]
 
 [project.urls]
+Documentation = "https://django-fast-multipart.readthedocs.io/"
 Repository = "https://github.com/p-r-a-v-i-n/django-fast-multipart"
 Issues = "https://github.com/p-r-a-v-i-n/django-fast-multipart/issues"
 
