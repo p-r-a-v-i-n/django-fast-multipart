@@ -86,7 +86,7 @@ impl PyRawPart {
     }
 }
 
-fn event_to_py(py: Python<'_>, event: MultipartEvent) -> PyResult<Py<PyAny>> {
+fn event_to_py(py: Python<'_>, event: MultipartEvent<Py<PyBytes>>) -> PyResult<Py<PyAny>> {
     let object = match event {
         MultipartEvent::Begin { headers } => {
             let headers = headers
@@ -100,13 +100,7 @@ fn event_to_py(py: Python<'_>, event: MultipartEvent) -> PyResult<Py<PyAny>> {
                 .collect();
             Bound::new(py, PyPartBegin { headers })?.into_any()
         }
-        MultipartEvent::Data { data } => Bound::new(
-            py,
-            PyPartData {
-                data: PyBytes::new(py, &data).unbind(),
-            },
-        )?
-        .into_any(),
+        MultipartEvent::Data { data } => Bound::new(py, PyPartData { data })?.into_any(),
         MultipartEvent::End => Bound::new(py, PyPartEnd)?.into_any(),
         MultipartEvent::Raw => Bound::new(py, PyRawPart)?.into_any(),
     };
@@ -154,7 +148,7 @@ impl PyMultipartParser {
 
     fn feed(&mut self, py: Python<'_>, data: &[u8]) -> PyResult<Vec<Py<PyAny>>> {
         self.parser
-            .feed(data)?
+            .feed_map_data(data, |data| PyBytes::new(py, data).unbind())?
             .into_iter()
             .map(|event| event_to_py(py, event))
             .collect()
@@ -162,7 +156,7 @@ impl PyMultipartParser {
 
     fn feed_eof(&mut self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         self.parser
-            .feed_eof()?
+            .feed_eof_map_data(|data| PyBytes::new(py, data).unbind())?
             .into_iter()
             .map(|event| event_to_py(py, event))
             .collect()

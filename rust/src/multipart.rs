@@ -23,9 +23,9 @@ pub enum MultipartState {
 }
 
 #[derive(Debug, Clone)]
-pub enum MultipartEvent {
+pub enum MultipartEvent<D> {
     Begin { headers: Vec<(Vec<u8>, Vec<u8>)> },
-    Data { data: Vec<u8> },
+    Data { data: D },
     End,
     Raw,
 }
@@ -97,7 +97,17 @@ impl MultipartParser {
         self.state
     }
 
-    pub fn feed(&mut self, data: &[u8]) -> PyResult<Vec<MultipartEvent>> {
+    // Map body slices before they are drained from the parser buffer. The
+    // Python binding can therefore create its final `bytes` value without an
+    // intermediate `Vec<u8>` allocation and copy.
+    pub fn feed_map_data<D, F>(
+        &mut self,
+        data: &[u8],
+        mut map_data: F,
+    ) -> PyResult<Vec<MultipartEvent<D>>>
+    where
+        F: FnMut(&[u8]) -> D,
+    {
         let mut events = Vec::new();
         if self.eof_received {
             return Err(PyValueError::new_err("Cannot feed data after EOF."));
@@ -115,7 +125,7 @@ impl MultipartParser {
             let progressed = match self.state {
                 MultipartState::Preamble => self.handle_preamble()?,
                 MultipartState::Header => self.handle_header(&mut events)?,
-                MultipartState::Body => self.handle_body(&mut events)?,
+                MultipartState::Body => self.handle_body(&mut events, &mut map_data)?,
                 MultipartState::Discard | MultipartState::End => {
                     self.handle_raw_segment(&mut events)?
                 }
@@ -126,7 +136,10 @@ impl MultipartParser {
         }
     }
 
-    pub fn feed_eof(&mut self) -> PyResult<Vec<MultipartEvent>> {
+    pub fn feed_eof_map_data<D, F>(&mut self, mut map_data: F) -> PyResult<Vec<MultipartEvent<D>>>
+    where
+        F: FnMut(&[u8]) -> D,
+    {
         if self.eof_received {
             return Ok(Vec::new());
         }
@@ -148,7 +161,11 @@ impl MultipartParser {
             if let Some(index) = self.dash_boundary_finder.find(&self.buffer) {
                 let after_boundary = index + self.dash_boundary.len();
                 if delimiter_suffix(&self.buffer, after_boundary) == DelimiterSuffix::Incomplete {
-                    self.emit_data(&mut events, body_data_end(&self.buffer, index));
+                    self.emit_data(
+                        &mut events,
+                        body_data_end(&self.buffer, index),
+                        &mut map_data,
+                    );
                     events.push(MultipartEvent::End);
                     // Django creates a following RAW segment only when bytes
                     // remain after the boundary token. Preserve that
@@ -166,7 +183,9 @@ impl MultipartParser {
 
         let data = std::mem::take(&mut self.buffer);
         if self.state == MultipartState::Body && !data.is_empty() {
-            events.push(MultipartEvent::Data { data });
+            events.push(MultipartEvent::Data {
+                data: map_data(&data),
+            });
         }
         Ok(events)
     }
@@ -217,7 +236,7 @@ impl MultipartParser {
         Ok(false)
     }
 
-    fn handle_header(&mut self, events: &mut Vec<MultipartEvent>) -> PyResult<bool> {
+    fn handle_header<D>(&mut self, events: &mut Vec<MultipartEvent<D>>) -> PyResult<bool> {
         let next_boundary = self.dash_boundary_finder.find(&self.buffer);
         let line_end = memmem::find(&self.buffer, CRLF);
         if let Some(index) = next_boundary
@@ -343,7 +362,14 @@ impl MultipartParser {
         .then_some(suffix.len())
     }
 
-    fn handle_body(&mut self, events: &mut Vec<MultipartEvent>) -> PyResult<bool> {
+    fn handle_body<D, F>(
+        &mut self,
+        events: &mut Vec<MultipartEvent<D>>,
+        map_data: &mut F,
+    ) -> PyResult<bool>
+    where
+        F: FnMut(&[u8]) -> D,
+    {
         if self.pending_headers {
             if self.buffer.len() < self.dash_boundary.len()
                 && self.dash_boundary.starts_with(&self.buffer)
@@ -370,14 +396,14 @@ impl MultipartParser {
             match delimiter_suffix(&self.buffer, after_boundary) {
                 DelimiterSuffix::Open(consumed) => {
                     self.current_total_header_size = consumed - after_boundary;
-                    self.emit_data(events, data_end);
+                    self.emit_data(events, data_end, map_data);
                     events.push(MultipartEvent::End);
                     self.buffer.drain(..consumed);
                     self.state = MultipartState::Header;
                     return Ok(true);
                 }
                 DelimiterSuffix::Close => {
-                    self.emit_data(events, data_end);
+                    self.emit_data(events, data_end, map_data);
                     events.push(MultipartEvent::End);
                     self.buffer.drain(..after_boundary);
                     self.state = MultipartState::End;
@@ -385,7 +411,7 @@ impl MultipartParser {
                 }
                 DelimiterSuffix::Incomplete => {
                     self.check_incomplete_header_prefix(after_boundary)?;
-                    self.emit_data(events, data_end);
+                    self.emit_data(events, data_end, map_data);
                     self.buffer.drain(..data_end);
                     return Ok(false);
                 }
@@ -394,7 +420,7 @@ impl MultipartParser {
                     // separator without validating its suffix. Finish the
                     // current part and ignore the resulting RAW segment until
                     // another usable boundary is found.
-                    self.emit_data(events, data_end);
+                    self.emit_data(events, data_end, map_data);
                     events.push(MultipartEvent::End);
                     self.buffer.drain(..after_boundary);
                     self.state = MultipartState::Discard;
@@ -406,13 +432,13 @@ impl MultipartParser {
         let retained = self.delimiter_length - 1;
         if self.buffer.len() > retained {
             let emitted = self.buffer.len() - retained;
-            self.emit_data(events, emitted);
+            self.emit_data(events, emitted, map_data);
             self.buffer.drain(..emitted);
         }
         Ok(false)
     }
 
-    fn handle_raw_segment(&mut self, events: &mut Vec<MultipartEvent>) -> PyResult<bool> {
+    fn handle_raw_segment<D>(&mut self, events: &mut Vec<MultipartEvent<D>>) -> PyResult<bool> {
         // Django continues classifying every segment after a boundary token,
         // including epilogues and data after a closing-boundary marker.
         let next_boundary = self.dash_boundary_finder.find(&self.buffer);
@@ -433,9 +459,9 @@ impl MultipartParser {
         Ok(false)
     }
 
-    fn handle_raw_boundary(
+    fn handle_raw_boundary<D>(
         &mut self,
-        events: &mut Vec<MultipartEvent>,
+        events: &mut Vec<MultipartEvent<D>>,
         index: usize,
     ) -> PyResult<bool> {
         let after_boundary = index + self.dash_boundary.len();
@@ -466,10 +492,13 @@ impl MultipartParser {
         }
     }
 
-    fn emit_data(&self, events: &mut Vec<MultipartEvent>, length: usize) {
+    fn emit_data<D, F>(&self, events: &mut Vec<MultipartEvent<D>>, length: usize, map_data: &mut F)
+    where
+        F: FnMut(&[u8]) -> D,
+    {
         if length > 0 {
             events.push(MultipartEvent::Data {
-                data: self.buffer[..length].to_vec(),
+                data: map_data(&self.buffer[..length]),
             });
         }
     }
