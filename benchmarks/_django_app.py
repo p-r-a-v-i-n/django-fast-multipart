@@ -7,18 +7,20 @@ from django.urls import path
 from django_fast_multipart import RustMultiPartParser
 
 
-def upload_response(request: HttpRequest, parser_name: str, scenario_name: str) -> HttpResponse:
+def upload_response(request: HttpRequest, parser_name: str, handler_name: str) -> HttpResponse:
     if parser_name == "rust":
         request.multipart_parser_class = RustMultiPartParser
     elif parser_name != "django":
         return HttpResponse(status=404)
 
-    if scenario_name.startswith("temporary-file-"):
+    if handler_name == "temporary":
         request.upload_handlers = [TemporaryFileUploadHandler(request)]
-    elif "file" in scenario_name or scenario_name.startswith("mixed-form-"):
+    elif handler_name == "memory":
         request.upload_handlers = [MemoryFileUploadHandler(request)]
-    else:
+    elif handler_name == "none":
         request.upload_handlers = []
+    else:
+        return HttpResponse(status=404)
 
     post = request.POST
     files = request.FILES
@@ -30,18 +32,21 @@ def upload_response(request: HttpRequest, parser_name: str, scenario_name: str) 
     response.headers["X-Benchmark-File-Bytes"] = str(
         sum(uploaded_file.size for uploaded_file in uploaded_files)
     )
+    response.headers["X-Benchmark-File-Classes"] = ",".join(
+        uploaded_file.__class__.__name__ for uploaded_file in uploaded_files
+    )
     return response
 
 
-def wsgi_upload(request: HttpRequest, scenario_name: str, parser_name: str) -> HttpResponse:
-    return upload_response(request, parser_name, scenario_name)
+def wsgi_upload(request: HttpRequest, handler_name: str, parser_name: str) -> HttpResponse:
+    return upload_response(request, parser_name, handler_name)
 
 
-async def asgi_upload(request: HttpRequest, scenario_name: str, parser_name: str) -> HttpResponse:
-    return upload_response(request, parser_name, scenario_name)
+async def asgi_upload(request: HttpRequest, handler_name: str, parser_name: str) -> HttpResponse:
+    return upload_response(request, parser_name, handler_name)
 
 
 urlpatterns = [
-    path("benchmark/wsgi/<str:scenario_name>/<str:parser_name>/", wsgi_upload),
-    path("benchmark/asgi/<str:scenario_name>/<str:parser_name>/", asgi_upload),
+    path("benchmark/wsgi/<str:handler_name>/<str:parser_name>/", wsgi_upload),
+    path("benchmark/asgi/<str:handler_name>/<str:parser_name>/", asgi_upload),
 ]

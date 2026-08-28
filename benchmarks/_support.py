@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
 from io import BytesIO
+from typing import Literal
 
 import django
 from django.conf import settings
@@ -74,6 +75,24 @@ class Scenario:
     expected_fields: int
     expected_files: int
     expected_file_bytes: int
+
+    @property
+    def handler_name(self) -> Literal["none", "memory", "temporary"]:
+        if not self.handler_classes:
+            return "none"
+        if self.handler_classes == (MemoryFileUploadHandler,):
+            return "memory"
+        if self.handler_classes == (TemporaryFileUploadHandler,):
+            return "temporary"
+        raise RuntimeError(f"Unsupported benchmark upload handlers: {self.handler_classes!r}")
+
+    @property
+    def expected_file_class(self) -> str | None:
+        return {
+            "none": None,
+            "memory": "InMemoryUploadedFile",
+            "temporary": "TemporaryUploadedFile",
+        }[self.handler_name]
 
 
 def make_body(parts: list[tuple[list[tuple[bytes, bytes]], bytes]]) -> bytes:
@@ -189,6 +208,10 @@ def validate_result(scenario: Scenario, post, files) -> None:
         raise RuntimeError(
             f"Expected {scenario.expected_file_bytes} file bytes, received {file_bytes}."
         )
+    file_classes = [uploaded_file.__class__.__name__ for uploaded_file in uploaded_files]
+    expected_classes = [scenario.expected_file_class] * scenario.expected_files
+    if file_classes != expected_classes:
+        raise RuntimeError(f"Expected file classes {expected_classes}, received {file_classes}.")
 
 
 def validate_response(scenario: Scenario, response) -> None:
@@ -198,6 +221,9 @@ def validate_response(scenario: Scenario, response) -> None:
         "X-Benchmark-Fields": scenario.expected_fields,
         "X-Benchmark-Files": scenario.expected_files,
         "X-Benchmark-File-Bytes": scenario.expected_file_bytes,
+        "X-Benchmark-File-Classes": ",".join(
+            [scenario.expected_file_class or ""] * scenario.expected_files
+        ),
     }
     for header, value in expected.items():
         if response.headers.get(header) != str(value):
@@ -232,7 +258,7 @@ def run_wsgi_request(
 ) -> None:
     scenario = get_scenario(scenario_name)
     response = (client or Client()).post(
-        f"/benchmark/wsgi/{scenario_name}/{parser_name}/",
+        f"/benchmark/wsgi/{scenario.handler_name}/{parser_name}/",
         scenario.body,
         content_type=content_type(),
     )
@@ -244,9 +270,9 @@ def run_wsgi_request(
 
 async def run_asgi_request(parser_name: str, scenario_name: str) -> None:
     scenario = get_scenario(scenario_name)
-    path = f"/benchmark/asgi/{scenario_name}/{parser_name}/"
+    path = f"/benchmark/asgi/{scenario.handler_name}/{parser_name}/"
     request = AsyncRequestFactory().post(path, scenario.body, content_type=content_type())
-    response = await asgi_upload(request, scenario_name, parser_name)
+    response = await asgi_upload(request, scenario.handler_name, parser_name)
     try:
         validate_response(scenario, response)
     finally:

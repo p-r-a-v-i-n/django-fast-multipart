@@ -12,8 +12,8 @@ measured with 8 KiB and 64 KiB input chunks.
 Two additional suites exercise Django request objects. The lifecycle timing
 suite uses Django's test client for the complete in-process WSGI path and
 `AsyncRequestFactory` for the ASGI request/view path. The concurrency suite
-runs repeated WSGI requests in worker threads and ASGI request/view tasks on
-one event loop.
+runs repeated WSGI requests in worker threads. ASGI concurrency requires a
+separate production-server benchmark and is not simulated here.
 
 > **Important:** None of these benchmarks includes a production network
 > server, socket I/O, TLS, a database, or application work beyond parsing and
@@ -40,7 +40,7 @@ Measure the in-process WSGI lifecycle and ASGI request/view path:
 uv run python -m benchmarks.benchmark_requests --rigorous -o benchmark-requests.json
 ```
 
-Measure concurrent requests at one, two, and four workers/tasks:
+Measure concurrent WSGI requests at one, two, and four worker threads:
 
 ```console
 uv run python -m benchmarks.measure_concurrency \
@@ -51,13 +51,18 @@ uv run python -m benchmarks.measure_concurrency \
 
 Compare timing files with `uv run python -m pyperf compare_to`. Only compare
 results collected with equivalent Python and Django versions, native build
-profiles, and hardware. The manual GitHub Actions workflow stores all four
-result files as artifacts and does not enforce performance thresholds.
+profiles, and hardware. The manual GitHub Actions workflow runs the parser,
+request-path, and concurrency suites as separate jobs, stores all four result
+files as artifacts, and does not enforce performance thresholds.
 
 The concurrency script alternates which parser runs first in each round. It
 reports median requests per second plus median and 95th-percentile in-process
-request latency. Compare parsers within the same request path and run; WSGI and
-ASGI values are not directly interchangeable because their harnesses differ.
+request latency for threaded WSGI requests.
+
+The ASGI timing path constructs a real `ASGIRequest` but calls the benchmark
+view directly. It excludes `ASGIHandler`, middleware, URL routing, server
+body spooling, and network behavior. Compare Django and Rust within the ASGI
+path; do not compare its absolute values with WSGI or production servers.
 
 Peak RSS is diagnostic because allocator behavior and operating-system
 accounting introduce noise. Each memory case prepares its request body before
@@ -163,8 +168,8 @@ measured case.
 latency, concurrent throughput, behavior under WSGI or ASGI servers, or a
 hardware-independent speedup. The current benchmark suite now covers mixed
 forms, multiple files, a broader file-size range, WSGI/ASGI request paths, and
-in-process concurrency, but those expanded results are not part of this older
-reference run.
+threaded WSGI concurrency, but those expanded results are not part of this
+older reference run.
 
 Before using these numbers for deployment or capacity decisions, repeat the
 suite on the target platform with AC power, a fixed CPU-frequency policy,
