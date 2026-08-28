@@ -65,15 +65,28 @@ Read the complete guide at
 It covers installation, middleware ordering, per-view setup, upload handlers,
 compatibility, performance, troubleshooting, and development.
 
-## Performance
+## Quick performance results
 
-Reference microbenchmarks show the clearest reduction in parser overhead for
-field-heavy forms and in-memory uploads. Temporary-file uploads benefit less
-because file I/O and upload-handler work dominate. These results are
-parser-level measurements, not end-to-end application guarantees; see the
-[benchmark methodology](benchmarks/README.md) for details.
+In our in-process Django request benchmarks, the Rust parser reduced request
+parsing time for each tested workload:
 
-## Project status
+| WSGI request | Django | Rust | Speedup |
+| --- | ---: | ---: | ---: |
+| 100 form fields | 2.42 ms | 1.15 ms | 2.10x |
+| Mixed form with a 1 MiB file | 1.54 ms | 1.07 ms | 1.45x |
+| 8 MiB temporary file | 7.89 ms | 6.76 ms | 1.17x |
+
+The main point is simple: forms with many fields get the biggest benefit.
+Large uploads also improve, but file writes and Django's upload handlers take
+most of the time. Memory usage was broadly comparable with Django's parser.
+
+These results are from one GitHub Actions run on Python 3.14 and Django 6.1.
+They measure an in-process request, not a production server or network. Read
+the [performance guide](https://django-fast-multipart.readthedocs.io/en/latest/performance.html)
+and [benchmark methodology](benchmarks/README.md) before using the numbers for
+capacity planning.
+
+## Compatibility
 
 The project is currently beta. Its behavior is extensively tested against
 Django's `MultiPartParser`, including built-in upload handlers, upload limits,
