@@ -13,7 +13,7 @@ jobs:
   parsers:
     name: Parser comparison
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Check out the repository
@@ -36,20 +36,38 @@ jobs:
         run: uv sync --locked --all-groups
 
       - name: Measure parser timing
-        run: uv run --locked python benchmarks/benchmark_parsers.py --rigorous -o benchmark-timing.json
+        run: >-
+          uv run --locked python -m benchmarks.benchmark_parsers
+          --rigorous
+          -o benchmark-timing.json
 
       - name: Measure parser peak RSS
         run: >-
-          uv run --locked python benchmarks/measure_memory.py
+          uv run --locked python -m benchmarks.measure_memory
           --runs 5
           --output benchmark-memory.json
+
+      - name: Measure Django request lifecycle
+        run: >-
+          uv run --locked python -m benchmarks.benchmark_requests
+          --rigorous
+          -o benchmark-requests.json
+
+      - name: Measure concurrent uploads
+        run: >-
+          uv run --locked python -m benchmarks.measure_concurrency
+          --rounds 5
+          --requests-per-worker 5
+          --output benchmark-concurrency.json
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: parser-benchmarks-${{ github.sha }}
           path: |
+            benchmark-concurrency.json
             benchmark-memory.json
+            benchmark-requests.json
             benchmark-timing.json
           if-no-files-found: error
           retention-days: 30
