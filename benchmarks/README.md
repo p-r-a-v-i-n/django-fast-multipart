@@ -69,110 +69,98 @@ accounting introduce noise. Each memory case prepares its request body before
 forking the measured process, so input construction is excluded from the
 parser's incremental peak.
 
-## Exploratory reference run
+## Reference results
 
-The following parser-only results are from one local run on 26 August 2026 and
-predate the expanded workload, lifecycle, and concurrency suites. The machine
-used the environment below. Timing used `pyperf --rigorous`; memory values are
-the median incremental peak RSS from five isolated processes.
+These results are from the manual GitHub Actions workflow run for commit
+[`f1a117a`](https://github.com/p-r-a-v-i-n/django-fast-multipart/commit/f1a117aac7c125d0f1f4e7468c4f4f2731ad6712)
+on 28 August 2026.
 
 | Environment | Value |
 | --- | --- |
-| CPU | AMD Ryzen 3 3250U, 2 cores / 4 threads |
-| Operating system | Linux x86-64 |
-| Python | CPython 3.14.1 |
+| Runner | GitHub-hosted Linux runner, 4 vCPUs |
+| CPU | AMD EPYC 7763 |
+| Python | CPython 3.14.7 |
 | Django | 6.1 |
 | Native build | Release profile with LTO and one code-generation unit |
-| Power | Battery |
-| CPU frequency policy | `schedutil`, 1.4–2.6 GHz, boost enabled |
-| CPU isolation | None; normal scheduler and interrupt activity remained |
 
-**The host was not configured as a controlled performance-testing machine.**
-`pyperf` reported host jitter or insufficient stability for several cases.
-The values below preserve the observed results, but they are not a regression
-baseline or a performance guarantee.
+GitHub-hosted runners are shared and are not controlled performance machines.
+`pyperf` reported instability for some cases, especially temporary-file
+uploads. Treat these numbers as a useful reference, not a fixed baseline.
 
-### Timing
+### Django request paths
 
-| Case | Chunk | Django | Rust | Rust speedup |
+| Request | Path | Django | Rust | Speedup |
+| --- | --- | ---: | ---: | ---: |
+| 100 fields | WSGI | 2.42 ms | 1.15 ms | 2.10x |
+| 100 fields | ASGI | 2.25 ms | 1.03 ms | 2.19x |
+| Mixed form with a 1 MiB file | WSGI | 1.54 ms | 1.07 ms | 1.45x |
+| Mixed form with a 1 MiB file | ASGI | 1.40 ms | 0.909 ms | 1.54x |
+| 8 MiB temporary file | WSGI | 7.89 ms | 6.76 ms | 1.17x |
+| 8 MiB temporary file | ASGI | 8.12 ms | 7.19 ms | 1.13x |
+
+### WSGI concurrency
+
+This benchmark uses the mixed form with a 1 MiB file.
+
+| Threads | Django requests/s | Rust requests/s | Speedup | Django p95 | Rust p95 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 639 | 1,180 | 1.85x | 1.88 ms | 1.27 ms |
+| 2 | 767 | 1,088 | 1.42x | 6.35 ms | 1.49 ms |
+| 4 | 673 | 975 | 1.45x | 14.95 ms | 1.87 ms |
+
+### Parser timing
+
+| Case | Chunk | Django | Rust | Speedup |
 | --- | ---: | ---: | ---: | ---: |
-| 100 fields | 8 KiB | 6.16 ms | 2.54 ms | 2.43x |
-| 100 fields | 64 KiB | 5.29 ms | 2.48 ms | 2.13x |
-| 1 MiB in-memory file | 8 KiB | 1.68 ms | 1.03 ms | 1.63x |
-| 1 MiB in-memory file | 64 KiB | 3.51 ms | 0.82 ms | 4.30x |
-| 8 MiB temporary file | 8 KiB | 22.6 ms | 18.4 ms | 1.23x |
-| 8 MiB temporary file | 64 KiB | 17.4 ms | 16.1 ms | 1.08x |
+| 100 fields | 8 KiB | 2.02 ms | 0.873 ms | 2.32x |
+| 100 fields | 64 KiB | 2.03 ms | 0.874 ms | 2.32x |
+| Mixed form with a 1 MiB file | 8 KiB | 1.14 ms | 0.630 ms | 1.82x |
+| Mixed form with a 1 MiB file | 64 KiB | 1.13 ms | 0.672 ms | 1.68x |
+| Eight 128 KiB memory files | 8 KiB | 0.858 ms | 0.491 ms | 1.75x |
+| Eight 128 KiB memory files | 64 KiB | 0.760 ms | 0.517 ms | 1.47x |
+| 64 KiB memory file | 8 KiB | 0.126 ms | 0.065 ms | 1.92x |
+| 64 KiB memory file | 64 KiB | 0.153 ms | 0.085 ms | 1.81x |
+| 1 MiB memory file | 8 KiB | 0.578 ms | 0.312 ms | 1.85x |
+| 1 MiB memory file | 64 KiB | 1.22 ms | 0.277 ms | 4.40x |
+| 8 MiB temporary file | 8 KiB | 7.11 ms | 5.39 ms | 1.32x |
+| 8 MiB temporary file | 64 KiB | 5.63 ms | 4.82 ms | 1.17x |
+| 32 MiB temporary file | 8 KiB | 30.2 ms | 23.2 ms | 1.30x |
+| 32 MiB temporary file | 64 KiB | 22.3 ms | 19.1 ms | 1.17x |
 
-### Incremental peak RSS
+### Incremental peak memory
 
-| Case | Chunk | Django incremental peak RSS | Rust incremental peak RSS |
+The values are median incremental peak RSS from five isolated processes.
+
+| Case | Chunk | Django | Rust |
 | --- | ---: | ---: | ---: |
-| 100 fields | 8 KiB | 1.21 MiB | 0.99 MiB |
-| 100 fields | 64 KiB | 1.21 MiB | 0.99 MiB |
-| 1 MiB in-memory file | 8 KiB | 2.18 MiB | 1.95 MiB |
-| 1 MiB in-memory file | 64 KiB | 3.16 MiB | 2.53 MiB |
-| 8 MiB temporary file | 8 KiB | 1.43 MiB | 1.16 MiB |
-| 8 MiB temporary file | 64 KiB | 1.70 MiB | 1.54 MiB |
+| 100 fields | 8 KiB | 1.13 MiB | 1.16 MiB |
+| 100 fields | 64 KiB | 1.13 MiB | 1.09 MiB |
+| Mixed form with a 1 MiB file | 8 KiB | 1.14 MiB | 1.10 MiB |
+| Mixed form with a 1 MiB file | 64 KiB | 1.14 MiB | 1.54 MiB |
+| Eight 128 KiB memory files | 8 KiB | 1.14 MiB | 1.16 MiB |
+| Eight 128 KiB memory files | 64 KiB | 1.14 MiB | 1.10 MiB |
+| 64 KiB memory file | 8 KiB | 1.13 MiB | 1.09 MiB |
+| 64 KiB memory file | 64 KiB | 1.13 MiB | 1.28 MiB |
+| 1 MiB memory file | 8 KiB | 2.01 MiB | 1.97 MiB |
+| 1 MiB memory file | 64 KiB | 2.88 MiB | 2.41 MiB |
+| 8 MiB temporary file | 8 KiB | 1.38 MiB | 1.34 MiB |
+| 8 MiB temporary file | 64 KiB | 1.63 MiB | 1.78 MiB |
+| 32 MiB temporary file | 8 KiB | 1.38 MiB | 1.34 MiB |
+| 32 MiB temporary file | 64 KiB | 1.63 MiB | 1.72 MiB |
 
-### CPU-pinned repeatability check
+Rust used less incremental peak memory in 8 of the 14 paired cases and more in
+6. Most differences were small, so the correct conclusion is that memory use
+was broadly comparable. The 8 MiB and 32 MiB temporary-file cases used almost
+the same memory, showing that large files remained streamed.
 
-A supplementary check pinned the process to one logical CPU and alternated
-which parser ran first in 31 paired blocks. This reduces CPU migration and
-ordering bias, but it does not remove frequency scaling, thermal effects, or
-background activity.
+## What the results mean
 
-| Case | Django median | Rust median | Median paired speedup | Paired range |
-| --- | ---: | ---: | ---: | ---: |
-| 100 fields, 8 KiB chunks | 5.15 ms | 2.49 ms | 2.07x | 1.94–2.23x |
-| 1 MiB in-memory file, 64 KiB chunks | 3.28 ms | 0.88 ms | 3.77x | 3.30–4.71x |
-| 8 MiB temporary file, 64 KiB chunks | 14.55 ms | 13.84 ms | 1.07x | 0.99–1.15x |
+The Rust parser gave the clearest improvement for forms with many fields and
+in-memory uploads. The improvement remained visible through the Django request
+path and under threaded WSGI concurrency. Temporary-file uploads improved less
+because file writes and upload-handler work take more of the total time.
 
-**The direction of the field and in-memory results remained consistent after
-pinning.** The temporary-file result was small enough that individual paired
-blocks sometimes showed no advantage.
-
-## Profiling observations
-
-Python `cProfile` was used for call attribution on representative cases. Its
-instrumentation changes absolute timings, so the profile is used to locate
-work rather than calculate speedups.
-
-- **Field-heavy requests:** native `MultipartParser.feed()` accounted for a
-  small portion of the Rust path. Python-side part creation, header parameter
-  parsing, string conversion, limit enforcement, and `QueryDict` population
-  dominated the remaining work.
-- **In-memory uploads:** both implementations delivered exactly 1 MiB as 17
-  `bytes` chunks to the same `MemoryFileUploadHandler`. The observed difference
-  was therefore not caused by Rust passing less data to Django's handler.
-- **Temporary-file uploads:** the buffered file write accounted for roughly
-  half of the profiled Rust path. Input reads and temporary-file close and
-  unlink operations added shared cost, leaving less parser work to accelerate.
-- **Native/Python transfer:** the current data path copies input into the Rust
-  buffer, copies emitted body data into an event, and then creates a Python
-  `bytes` object. Reducing these copies is a more promising file-upload target
-  than further boundary-search tuning.
-
-Hardware performance counters were not collected because the host restricts
-them with `perf_event_paranoid=4`. The system security setting was not changed
-for this run.
-
-## Interpretation and limitations
-
-**What this run supports:** the Rust-backed parser reduced parser overhead for
-field-heavy and in-memory cases on this machine. Its advantage was much
-narrower when Django's temporary-file handler and filesystem operations
-performed most of the work. Incremental peak RSS was lower for Rust in each
-measured case.
-
-**What this run does not support:** it does not establish production endpoint
-latency, concurrent throughput, behavior under WSGI or ASGI servers, or a
-hardware-independent speedup. The current benchmark suite now covers mixed
-forms, multiple files, a broader file-size range, WSGI/ASGI request paths, and
-threaded WSGI concurrency, but those expanded results are not part of this
-older reference run.
-
-Before using these numbers for deployment or capacity decisions, repeat the
-suite on the target platform with AC power, a fixed CPU-frequency policy,
-controlled boost behavior, CPU affinity or isolation, an idle host, and
-multiple independent runs. Production-server, network, and multi-process
-deployment benchmarks should be evaluated separately.
+These results do not establish production endpoint latency or throughput.
+They exclude a production server, socket I/O, TLS, a database, and normal view
+work. Before making a deployment decision, repeat the suite on the target
+hardware with the application's real upload handlers and request shapes.
