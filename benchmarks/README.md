@@ -5,32 +5,64 @@ The timing suite compares Django's `MultiPartParser` with
 input chunk sizes. `pyperf` provides worker-process isolation, calibration,
 and warmups.
 
-The cases cover 100 form fields, a 1 MiB in-memory upload, and an 8 MiB
-temporary-file upload. Each case is measured with 8 KiB and 64 KiB input
-chunks.
+The parser cases cover 100 form fields, a mixed form, multiple files, and file
+sizes from 64 KiB through 32 MiB. Both memory and temporary-file handlers are
+measured with 8 KiB and 64 KiB input chunks.
 
-> **Important:** These are parser microbenchmarks, not end-to-end Django
-> request benchmarks. Their results do not represent application throughput or
-> response-time improvements.
+Two additional suites exercise Django request objects. The lifecycle timing
+suite uses Django's test client for the complete in-process WSGI path and
+`AsyncRequestFactory` for the ASGI request/view path. The concurrency suite
+runs repeated WSGI requests in worker threads. ASGI concurrency requires a
+separate production-server benchmark and is not simulated here.
+
+> **Important:** None of these benchmarks includes a production network
+> server, socket I/O, TLS, a database, or application work beyond parsing and
+> result validation. They do not represent deployment throughput or endpoint
+> response-time guarantees.
 
 ## Running the benchmarks
 
 Run timing benchmarks:
 
 ```console
-uv run python benchmarks/benchmark_parsers.py --rigorous -o benchmark-timing.json
+uv run python -m benchmarks.benchmark_parsers --rigorous -o benchmark-timing.json
 ```
 
 On Linux, measure peak resident memory in isolated processes:
 
 ```console
-uv run python benchmarks/measure_memory.py --runs 5 --output benchmark-memory.json
+uv run python -m benchmarks.measure_memory --runs 5 --output benchmark-memory.json
+```
+
+Measure the in-process WSGI lifecycle and ASGI request/view path:
+
+```console
+uv run python -m benchmarks.benchmark_requests --rigorous -o benchmark-requests.json
+```
+
+Measure concurrent WSGI requests at one, two, and four worker threads:
+
+```console
+uv run python -m benchmarks.measure_concurrency \
+  --rounds 5 \
+  --requests-per-worker 5 \
+  --output benchmark-concurrency.json
 ```
 
 Compare timing files with `uv run python -m pyperf compare_to`. Only compare
 results collected with equivalent Python and Django versions, native build
-profiles, and hardware. The manual GitHub Actions workflow stores both result
-files as artifacts and does not enforce performance thresholds.
+profiles, and hardware. The manual GitHub Actions workflow runs the parser,
+request-path, and concurrency suites as separate jobs, stores all four result
+files as artifacts, and does not enforce performance thresholds.
+
+The concurrency script alternates which parser runs first in each round. It
+reports median requests per second plus median and 95th-percentile in-process
+request latency for threaded WSGI requests.
+
+The ASGI timing path constructs a real `ASGIRequest` but calls the benchmark
+view directly. It excludes `ASGIHandler`, middleware, URL routing, server
+body spooling, and network behavior. Compare Django and Rust within the ASGI
+path; do not compare its absolute values with WSGI or production servers.
 
 Peak RSS is diagnostic because allocator behavior and operating-system
 accounting introduce noise. Each memory case prepares its request body before
@@ -39,7 +71,8 @@ parser's incremental peak.
 
 ## Exploratory reference run
 
-The following results are from one local run on 26 August 2026. The machine
+The following parser-only results are from one local run on 26 August 2026 and
+predate the expanded workload, lifecycle, and concurrency suites. The machine
 used the environment below. Timing used `pyperf --rigorous`; memory values are
 the median incremental peak RSS from five isolated processes.
 
@@ -133,11 +166,13 @@ measured case.
 
 **What this run does not support:** it does not establish production endpoint
 latency, concurrent throughput, behavior under WSGI or ASGI servers, or a
-hardware-independent speedup. It also does not cover mixed forms, multiple
-files, a broad file-size range, or concurrent uploads.
+hardware-independent speedup. The current benchmark suite now covers mixed
+forms, multiple files, a broader file-size range, WSGI/ASGI request paths, and
+threaded WSGI concurrency, but those expanded results are not part of this
+older reference run.
 
 Before using these numbers for deployment or capacity decisions, repeat the
 suite on the target platform with AC power, a fixed CPU-frequency policy,
 controlled boost behavior, CPU affinity or isolation, an idle host, and
-multiple independent runs. End-to-end Django and concurrent workload
-benchmarks should be evaluated separately.
+multiple independent runs. Production-server, network, and multi-process
+deployment benchmarks should be evaluated separately.

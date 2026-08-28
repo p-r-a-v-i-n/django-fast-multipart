@@ -14,7 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import django
-from _support import CHUNK_SIZES, PARSERS, SCENARIO_NAMES, get_scenario, run_parser
+
+from benchmarks._support import CHUNK_SIZES, PARSERS, SCENARIO_NAMES, get_scenario, run_parser
 
 
 def current_rss_bytes() -> int:
@@ -59,7 +60,8 @@ def worker(parser_name: str, scenario_name: str, chunk_size: int) -> None:
 def measure(parser_name: str, scenario_name: str, chunk_size: int) -> dict[str, int]:
     command = [
         sys.executable,
-        str(Path(__file__).resolve()),
+        "-m",
+        "benchmarks.measure_memory",
         "--worker",
         parser_name,
         scenario_name,

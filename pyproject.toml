@@ -48,6 +48,7 @@ include = [{ path = "rust/Cargo.lock", format = "sdist" }]
 
 [tool.pytest.ini_options]
 addopts = ["-ra", "--strict-config", "--strict-markers"]
+pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.ruff]

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import django
 import pyperf
-from _support import CHUNK_SIZES, PARSERS, SCENARIO_NAMES, run_parser
+
+if __package__:
+    from benchmarks._support import CHUNK_SIZES, PARSERS, SCENARIO_NAMES, run_parser
+else:
+    from _support import CHUNK_SIZES, PARSERS, SCENARIO_NAMES, run_parser
 
 
 def main() -> None:
