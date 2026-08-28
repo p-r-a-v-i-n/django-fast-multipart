@@ -59,7 +59,7 @@ fn normalize_error(error: impl ToString) -> ParserError {
     }
 }
 
-fn append_events(output: &mut Vec<Event>, events: Vec<MultipartEvent>) {
+fn append_events(output: &mut Vec<Event>, events: Vec<MultipartEvent<Vec<u8>>>) {
     for event in events {
         match event {
             MultipartEvent::Begin { headers } => output.push(Event::Begin(headers)),
@@ -91,7 +91,7 @@ fn parse(request: &[u8], chunk_size: usize, control: u8) -> Outcome {
     let mut events = Vec::new();
 
     for chunk in request.chunks(chunk_size) {
-        match parser.feed(chunk) {
+        match parser.feed_map_data(chunk, <[u8]>::to_vec) {
             Ok(produced) => append_events(&mut events, produced),
             Err(error) => {
                 return Outcome {
@@ -102,7 +102,7 @@ fn parse(request: &[u8], chunk_size: usize, control: u8) -> Outcome {
         }
     }
 
-    match parser.feed_eof() {
+    match parser.feed_eof_map_data(<[u8]>::to_vec) {
         Ok(produced) => append_events(&mut events, produced),
         Err(error) => {
             return Outcome {
