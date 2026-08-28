@@ -19,25 +19,25 @@ August 2026. It used CPython 3.14.7 and Django 6.1.
      - Rust
      - Speedup
    * - 100 fields
-     - 2.42 ms
-     - 1.15 ms
-     - 2.10x
+     - 1.55 ms
+     - 0.823 ms
+     - 1.89x
    * - Mixed form with a 1 MiB file
-     - 1.54 ms
-     - 1.07 ms
-     - 1.45x
+     - 1.05 ms
+     - 0.679 ms
+     - 1.55x
    * - 8 MiB temporary file
-     - 7.89 ms
-     - 6.76 ms
-     - 1.17x
+     - 5.97 ms
+     - 4.78 ms
+     - 1.25x
 
 The main point is simple: forms with many fields get the biggest benefit.
 Mixed forms also improve. Large temporary-file uploads improve less because
 filesystem writes and Django's upload-handler work take a larger part of the
 request.
 
-ASGI request/view measurements showed the same pattern: 2.19x for 100 fields,
-1.54x for the mixed form, and 1.13x for the temporary-file upload. This ASGI
+ASGI request/view measurements showed the same pattern: 1.98x for 100 fields,
+1.60x for the mixed form, and 1.27x for the temporary-file upload. This ASGI
 test does not include an ASGI server, middleware, routing, or network I/O.
 
 Concurrency
@@ -53,17 +53,17 @@ The threaded WSGI benchmark used the mixed 1 MiB form:
      - Rust requests/s
      - Speedup
    * - 1
-     - 639
-     - 1,180
-     - 1.85x
+     - 505
+     - 899
+     - 1.78x
    * - 2
-     - 767
-     - 1,088
-     - 1.42x
+     - 568
+     - 795
+     - 1.40x
    * - 4
-     - 673
-     - 975
-     - 1.45x
+     - 552
+     - 848
+     - 1.54x
 
 This is an in-process WSGI test without a network server. It helps compare the
 two parsers under the same conditions, but it is not a production throughput
@@ -73,7 +73,7 @@ Memory
 ------
 
 Peak memory was broadly comparable. Rust used less incremental peak memory in
-8 of the 14 paired cases and more in 6. Most differences were small. For
+6 of the 14 paired cases and more in 8. Most differences were small. For
 temporary-file uploads, memory stayed almost the same from 8 MiB to 32 MiB,
 which confirms that both parsers stream large files instead of keeping the
 whole upload in memory.

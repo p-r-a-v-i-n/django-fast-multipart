@@ -72,9 +72,9 @@ parsing time for each tested workload:
 
 | WSGI request | Django | Rust | Speedup |
 | --- | ---: | ---: | ---: |
-| 100 form fields | 2.42 ms | 1.15 ms | 2.10x |
-| Mixed form with a 1 MiB file | 1.54 ms | 1.07 ms | 1.45x |
-| 8 MiB temporary file | 7.89 ms | 6.76 ms | 1.17x |
+| 100 form fields | 1.55 ms | 0.823 ms | 1.89x |
+| Mixed form with a 1 MiB file | 1.05 ms | 0.679 ms | 1.55x |
+| 8 MiB temporary file | 5.97 ms | 4.78 ms | 1.25x |
 
 The main point is simple: forms with many fields get the biggest benefit.
 Large uploads also improve, but file writes and Django's upload handlers take
