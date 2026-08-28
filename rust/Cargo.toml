@@ -1,9 +1,9 @@
 [package]
 name = "django-fast-multipart-core"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license = "MIT"
-authors = ["Pravin", "Marcelo Trylesinski <marcelotryle@gmail.com>"]
+authors = ["Pravin"]
 description = "Internal Rust multipart parser for django-fast-multipart"
 repository = "https://github.com/p-r-a-v-i-n/django-fast-multipart"
 publish = false
