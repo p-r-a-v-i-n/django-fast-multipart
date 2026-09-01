@@ -13,7 +13,7 @@ permissions:
 
 env:
   MATURIN_VERSION: "v1.15.0"
-  UV_VERSION: "0.12.6"
+  UV_VERSION: "0.12.8"
 
 jobs:
   validate:
