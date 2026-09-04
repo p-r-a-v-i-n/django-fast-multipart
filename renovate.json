@@ -60,6 +60,14 @@
       "groupName": "GitHub Actions"
     },
     {
+      "description": "Keep the Rust toolchain and minimum supported Rust version aligned",
+      "matchManagers": ["rust-toolchain", "custom.regex"],
+      "matchDatasources": ["rust-version"],
+      "matchDepNames": ["rust"],
+      "groupName": "Rust toolchain",
+      "rangeStrategy": "replace"
+    },
+    {
       "description": "Require approval for major updates",
       "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": true
@@ -89,6 +97,18 @@
       "packageNameTemplate": "PyO3/maturin",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the minimum supported Rust version",
+      "managerFilePatterns": ["/^rust/Cargo\\.toml$/"],
+      "matchStrings": [
+        "rust-version\\s*=\\s*\\\"(?<currentValue>[^\\\"]+)\\\""
+      ],
+      "depNameTemplate": "rust",
+      "depTypeTemplate": "rust-version",
+      "datasourceTemplate": "rust-version",
+      "versioningTemplate": "rust-release-channel"
     }
   ]
 }
