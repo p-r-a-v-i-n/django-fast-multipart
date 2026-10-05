@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 env:
-  UV_VERSION: "0.12.19"
+  UV_VERSION: "0.12.23"
 
 jobs:
   build:
