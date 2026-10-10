@@ -96,12 +96,12 @@ jobs:
           uv pip install --python .wheel-venv-312 --no-deps --no-index --find-links dist django-fast-multipart
           uv run --no-project --python .wheel-venv-312 python -I tests/wheel_smoke.py
 
-      - name: Validate wheel on Python 3.14
+      - name: Validate wheel on Python 3.15
         run: |
-          uv venv --python 3.14 .wheel-venv-314
-          uv pip install --python .wheel-venv-314 "Django>=6.1,<6.2"
-          uv pip install --python .wheel-venv-314 --no-deps --no-index --find-links dist django-fast-multipart
-          uv run --no-project --python .wheel-venv-314 python -I tests/wheel_smoke.py
+          uv venv --python 3.15 .wheel-venv-315
+          uv pip install --python .wheel-venv-315 "Django>=6.1,<6.2"
+          uv pip install --python .wheel-venv-315 --no-deps --no-index --find-links dist django-fast-multipart
+          uv run --no-project --python .wheel-venv-315 python -I tests/wheel_smoke.py
 
       - name: Upload wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
