@@ -37,7 +37,7 @@ The repository also contains:
 * a libFuzzer target under ``fuzz/``;
 * timing and peak-memory benchmarks under ``benchmarks/``;
 * an advisory test job against Django's main branch;
-* installed-wheel smoke tests on Python 3.12 and 3.14.
+* installed-wheel smoke tests on Python 3.12 and 3.15.
 
 Run the native parser's libFuzzer target with nightly Rust and ``cargo-fuzz``:
 
