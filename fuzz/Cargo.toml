@@ -10,7 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 memchr = "2.8.3"
-pyo3 = "0.29.2"
+pyo3 = "0.30.0"
 
 [[bin]]
 name = "multipart_parser"
