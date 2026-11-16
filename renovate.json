@@ -8,7 +8,9 @@
   ],
   "timezone": "Asia/Kolkata",
   "schedule": ["before 6am on monday"],
-  "dependencyDashboard": true,
+  "dependencyDashboard": {
+    "enabled": true
+  },
   "semanticCommits": "enabled",
   "osvVulnerabilityAlerts": true,
   "prConcurrentLimit": 5,
