@@ -2,7 +2,7 @@
 name = "django-fast-multipart-core"
 version = "0.1.2"
 edition = "2021"
-rust-version = "1.99"
+rust-version = "1.100"
 license = "MIT"
 authors = ["Pravin"]
 description = "Internal Rust multipart parser for django-fast-multipart"
