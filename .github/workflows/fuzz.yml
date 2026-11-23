@@ -43,7 +43,7 @@ jobs:
       - name: Install nightly Rust
         uses: dtolnay/rust-toolchain@6a52aad76a94a5fbc50d567bb5be24419801c1fb # nightly
         with:
-          toolchain: nightly-2026-11-16
+          toolchain: nightly-2026-11-23
 
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked --version "${CARGO_FUZZ_VERSION}"
